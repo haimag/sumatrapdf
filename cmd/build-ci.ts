@@ -478,7 +478,7 @@ async function main() {
         const { main: genDocs } = await import("./gen-docs");
         await genDocs();
       }
-      await buildPreRelease(preRelVer, sha1, "Win32", join("out", "rel32"));
+      await buildPreRelease(preRelVer, sha1, "x64", join("out", "rel64"));
       break;
     case "codeql":
       await buildSmoke();
