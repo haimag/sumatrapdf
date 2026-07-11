@@ -206,7 +206,7 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
 }
 
 void FindBarWnd::Layout() {
-    if (!edit || !status || !hwndBtns || !results) {
+    if (!edit || !status || !hwndBtns ) {
         return;
     }
     Rect rc = ClientRect(hwnd);
@@ -249,9 +249,9 @@ void FindBarWnd::Layout() {
     }
 
     // the results list fills the rest of the window below the header
-    int listTop = pad + headerDy + pad;
-    int listDy = std::max(0, rc.dy - listTop - pad);
-    MoveWindow(results->hwnd, pad, listTop, contentDx, listDy, TRUE);
+    // int listTop = pad + headerDy + pad;
+    // int listDy = std::max(0, rc.dy - listTop - pad);
+    // MoveWindow(hwnd, pad, listTop, contentDx, listDy, TRUE);
 }
 
 void FindBarWnd::OnTextChanged() {
