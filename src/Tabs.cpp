@@ -64,25 +64,7 @@ int GetTabbarHeight(HWND hwnd, float factor) {
     if (fontDyWithPadding > tabDy) {
         tabDy = fontDyWithPadding;
     }
-    // guard against bad per-window DPI (e.g. under Wine)
-    int minDy = DpiScale(HWND_DESKTOP, kTabBarDy);
-    int minFontDy = FontDyPx(hwnd, hfont) + DpiScale(HWND_DESKTOP, 2);
-    if (minFontDy > minDy) {
-        minDy = minFontDy;
-    }
-    if (tabDy < minDy) {
-        tabDy = minDy;
-    }
-    int res = (int)((float)tabDy * factor);
-    if (IsRunningOnWine()) {
-        int dpi = DpiGet(hwnd);
-        int desktopDpi = DpiGet(HWND_DESKTOP);
-        logf(
-            "GetTabbarHeight: hwnd=%p factor=%g dpi=%d desktopDpi=%d tabDyScaled=%d fontDy=%d "
-            "minDy=%d result=%d\n",
-            hwnd, factor, dpi, desktopDpi, DpiScale(hwnd, kTabBarDy), fontDyWithPadding, minDy, res);
-    }
-    return res;
+    return (int)((float)tabDy * factor);
 }
 
 #if 0
