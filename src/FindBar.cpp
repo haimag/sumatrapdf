@@ -127,6 +127,7 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
     {
         Edit::CreateArgs args;
         args.parent = hwnd;
+        args.font = GetAppFont(hwnd);
         args.isMultiLine = false;
         args.withBorder = true;
         args.cueText = _TRA("Find");
@@ -142,6 +143,7 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
     {
         Static::CreateArgs args;
         args.parent = hwnd;
+        args.font = GetAppFont(hwnd);
         args.text = "";
         args.isRtl = IsUIRtl();
         status = new Static();
