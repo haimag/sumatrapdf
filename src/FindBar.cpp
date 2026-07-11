@@ -211,7 +211,7 @@ void FindBarWnd::Layout() {
     int editDx = DpiScale(hwnd, 220);
     int statusDx = DpiScale(hwnd, 88);
 
-    int editDy = edit->GetIdealSize().dy;
+    int editDy = DpiScale(hwnd, edit->GetIdealSize().dy);
 
     SIZE tbSz{};
     SendMessageW(hwndBtns, TB_GETMAXSIZE, 0, (LPARAM)&tbSz);
