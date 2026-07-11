@@ -9484,12 +9484,12 @@ static LRESULT CustomCaptionFrameProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
             }
             bool isFullScreen = win->isFullScreen || win->presentation;
             if (IsZoomed(hwnd) && !isFullScreen) {
-                int frameX = GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-                int frameY = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-                r->left += frameX;
-                r->top += frameY;
-                r->right -= frameX;
-                r->bottom -= frameY;
+                // keep a minimal non-client border so DWM preserves content during
+                // maximize/restore transitions, but avoid leaving the larger system
+                // frame margins unused around the window.
+                r->left += NON_CLIENT_BAND;
+                r->top += NON_CLIENT_BAND;
+                r->right -= NON_CLIENT_BAND;
                 r->bottom -= NON_CLIENT_BAND;
             } else if (!isFullScreen) {
                 // keep 1px non-client area at top so DWM preserves content
