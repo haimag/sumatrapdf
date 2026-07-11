@@ -9474,8 +9474,8 @@ static LRESULT CustomCaptionFrameProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
             }
             bool isFullScreen = win->isFullScreen || win->presentation;
             if (IsZoomed(hwnd) && !isFullScreen) {
-                int frameX = DpiScale(hwnd, GetSystemMetrics(SM_CXFRAME)) + DpiScale(hwnd, 8);
-                int frameY = DpiScale(hwnd, GetSystemMetrics(SM_CYFRAME)) + DpiScale(hwnd, 8);
+                int frameX = DpiScale(hwnd, GetSystemMetrics(SM_CXFRAME)) + DpiScale(hwnd, 2);
+                int frameY = DpiScale(hwnd, GetSystemMetrics(SM_CYFRAME)) + DpiScale(hwnd, 1);
                 r->left += frameX;
                 r->top += frameY;
                 r->right -= frameX;
