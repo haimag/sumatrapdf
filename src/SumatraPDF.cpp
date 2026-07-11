@@ -9484,13 +9484,13 @@ static LRESULT CustomCaptionFrameProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
             }
             bool isFullScreen = win->isFullScreen || win->presentation;
             if (IsZoomed(hwnd) && !isFullScreen) {
-                // keep a minimal non-client border so DWM preserves content during
-                // maximize/restore transitions, but avoid leaving the larger system
-                // frame margins unused around the window.
-                r->left += NON_CLIENT_BAND;
-                r->top += NON_CLIENT_BAND;
-                r->right -= NON_CLIENT_BAND;
-                r->bottom -= NON_CLIENT_BAND;
+                // when maximized, make client area fill the entire window
+                // rect to eliminate unused frame margins on all sides
+                // only keep 1px top border for DWM content preservation
+                r->left += 3;
+                r->top += 3;
+                r->right -= 3;
+                r->bottom -= 3;
             } else if (!isFullScreen) {
                 // keep 1px non-client area at top so DWM preserves content
                 // during resize (returning 0 makes DWM clear the surface)
