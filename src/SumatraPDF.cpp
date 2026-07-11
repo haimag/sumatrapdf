@@ -9092,7 +9092,7 @@ void RelayoutCaption(MainWindow* win) {
             if (btnCount > 0) {
                 RECT lastBtn;
                 SendMessageW(win->hwndMenuToolbar, TB_GETITEMRECT, btnCount - 1, (LPARAM)&lastBtn);
-                int naturalWidth = lastBtn.right + DpiScale(hwnd, GetSystemMetrics(SM_CXBORDER)) * 2;
+                int naturalWidth = lastBtn.right + GetSystemMetrics(SM_CXBORDER) * 2;
                 if (naturalWidth < row1Dx) {
                     menuBarWidth = naturalWidth;
                 }
