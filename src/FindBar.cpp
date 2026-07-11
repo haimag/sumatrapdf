@@ -248,10 +248,12 @@ void FindBarWnd::Layout() {
         MoveWindow(hwndBtns, tbX, y + (row2Dy - tbH) / 2, tbW, tbH, TRUE);
     }
 
+    SetWindowPos(hwnd, nullptr, 0, 0, barDx, barDy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+
     // the results list fills the rest of the window below the header
-    // int listTop = pad + headerDy + pad;
-    // int listDy = std::max(0, rc.dy - listTop - pad);
-    // MoveWindow(hwnd, pad, listTop, contentDx, listDy, TRUE);
+    int listTop = pad + headerDy + pad;
+    int listDy = std::max(0, rc.dy - listTop - pad);
+    SetWindowPos(hwnd, nullptr, pad, listTop, contentDx, listDy, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void FindBarWnd::OnTextChanged() {
