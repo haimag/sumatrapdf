@@ -206,31 +206,52 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
 }
 
 void FindBarWnd::Layout() {
-    int p = DpiScale(hwnd, 6);
-    int gap = DpiScale(hwnd, 4);
-    int editDx = DpiScale(hwnd, 220);
-    int statusDx = DpiScale(hwnd, 88);
+    if (!edit || !status || !hwndBtns || !results) {
+        return;
+    }
+    Rect rc = ClientRect(hwnd);
+    int pad = DpiScale(hwnd, 8);
+    int gap = DpiScale(hwnd, 6);
+    int statusDx = DpiScale(hwnd, 90);
+    int minEditDx = DpiScale(hwnd, 48);
 
-    int editDy = DpiScale(hwnd, edit->GetIdealSize().dy);
-
+    int editDy = edit->GetIdealSize().dy;
     SIZE tbSz{};
     SendMessageW(hwndBtns, TB_GETMAXSIZE, 0, (LPARAM)&tbSz);
+    int tbW = (int)tbSz.cx;
+    int tbH = (int)tbSz.cy;
 
-    int tbSz_cx = DpiScale(hwnd, (int)tbSz.cx);
-    int tbSz_cy = DpiScale(hwnd, (int)tbSz.cy);
+    int contentDx = std::max(0, rc.dx - 2 * pad);
+    // minimum width for [edit][status][toolbar] on one row without overlap
+    int singleRowDx = minEditDx + gap + statusDx + gap + tbW;
 
-    int innerDy = std::max(editDy, tbSz_cy);
-    barDy = innerDy + 2 * p;
-    barDx = p + editDx + gap + statusDx + gap + tbSz_cx + p;
+    int y = pad;
+    int headerDy;
+    if (contentDx >= singleRowDx) {
+        // wide: [edit][n/m][toolbar]
+        headerDy = std::max(editDy, tbH);
+        int tbX = pad + contentDx - tbW;
+        int statusX = tbX - gap - statusDx;
+        int editDx = statusX - gap - pad;
+        MoveWindow(hwndBtns, tbX, y + (headerDy - tbH) / 2, tbW, tbH, TRUE);
+        MoveWindow(status->hwnd, statusX, y + (headerDy - editDy) / 2, statusDx, editDy, TRUE);
+        MoveWindow(edit->hwnd, pad, y + (headerDy - editDy) / 2, editDx, editDy, TRUE);
+    } else {
+        // narrow: full-width edit, then [n/m][toolbar] (issue #5692)
+        MoveWindow(edit->hwnd, pad, y, contentDx, editDy, TRUE);
+        y += editDy + gap;
+        headerDy = editDy + gap + std::max(editDy, tbH);
+        int row2Dy = std::max(editDy, tbH);
+        int statusW = std::max(0, contentDx - gap - tbW);
+        MoveWindow(status->hwnd, pad, y + (row2Dy - editDy) / 2, statusW, editDy, TRUE);
+        int tbX = pad + contentDx - tbW;
+        MoveWindow(hwndBtns, tbX, y + (row2Dy - tbH) / 2, tbW, tbH, TRUE);
+    }
 
-    int x = p;
-    MoveWindow(edit->hwnd, x, (barDy - editDy) / 2, editDx, editDy, TRUE);
-    x += editDx + gap;
-    MoveWindow(status->hwnd, x, (barDy - editDy) / 2, statusDx, editDy, TRUE);
-    x += statusDx + gap;
-    MoveWindow(hwndBtns, x, (barDy - tbSz_cy) / 2, tbSz_cx, tbSz_cy, TRUE);
-
-    SetWindowPos(hwnd, nullptr, 0, 0, barDx, barDy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    // the results list fills the rest of the window below the header
+    int listTop = pad + headerDy + pad;
+    int listDy = std::max(0, rc.dy - listTop - pad);
+    MoveWindow(results->hwnd, pad, listTop, contentDx, listDy, TRUE);
 }
 
 void FindBarWnd::OnTextChanged() {
