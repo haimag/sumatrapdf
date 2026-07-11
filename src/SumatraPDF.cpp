@@ -9049,14 +9049,13 @@ void RelayoutCaption(MainWindow* win) {
             x += btnDx;
 
             int right = rc.x + rc.dx;
-            right -= btnDx;
             win->captionBtn[CB_SYSTEM_MENU].rect = {right, row1Y, btnDx, btnDy};
-            win->captionBtn[CB_SYSTEM_MENU].visible = true;
+            win->captionBtn[CB_SYSTEM_MENU].visible = false;
 
             row1X = x;
             row1Dx = right - x;
             tabsX = rc.x + buttonsWidth;
-            tabsDx = rc.dx - buttonsWidth - btnDx;
+            tabsDx = rc.dx - buttonsWidth;
         } else {
             win->captionBtn[CB_CLOSE].rect = {rc.x + rc.dx - btnDx, row1Y, btnDx, btnDy};
             win->captionBtn[CB_CLOSE].visible = true;
@@ -9073,11 +9072,11 @@ void RelayoutCaption(MainWindow* win) {
             win->captionBtn[CB_MINIMIZE].visible = true;
             rc.dx -= btnDx;
 
-            // Row 1 left: system menu (sized to match window buttons)
+            // Row 1 left: system menu hidden (do not draw icon area)
             win->captionBtn[CB_SYSTEM_MENU].rect = {rc.x, row1Y, btnDx, btnDy};
-            win->captionBtn[CB_SYSTEM_MENU].visible = true;
-            row1X = rc.x + btnDx;
-            row1Dx = rc.dx - btnDx;
+            win->captionBtn[CB_SYSTEM_MENU].visible = false;
+            row1X = rc.x;
+            row1Dx = rc.dx;
             tabsX = rc.x;
             tabsDx = rc.dx;
         }
@@ -9093,7 +9092,7 @@ void RelayoutCaption(MainWindow* win) {
             if (btnCount > 0) {
                 RECT lastBtn;
                 SendMessageW(win->hwndMenuToolbar, TB_GETITEMRECT, btnCount - 1, (LPARAM)&lastBtn);
-                int naturalWidth = lastBtn.right + GetSystemMetrics(SM_CXBORDER) * 2;
+                int naturalWidth = lastBtn.right + DpiScale(hwnd, GetSystemMetrics(SM_CXBORDER)) * 2;
                 if (naturalWidth < row1Dx) {
                     menuBarWidth = naturalWidth;
                 }
@@ -9158,10 +9157,8 @@ void RelayoutCaption(MainWindow* win) {
             x += btnDx;
 
             int right = rc.x + rc.dx;
-            right -= tabDy;
             win->captionBtn[CB_SYSTEM_MENU].rect = {right, tabY, tabDy, tabDy};
-            win->captionBtn[CB_SYSTEM_MENU].visible = true;
-            right -= tabDy;
+            win->captionBtn[CB_SYSTEM_MENU].visible = false;
             win->captionBtn[CB_MENU].rect = {right, tabY, tabDy, tabDy};
             win->captionBtn[CB_MENU].visible = true;
             right -= kTabsButtonGapX;
@@ -9185,9 +9182,7 @@ void RelayoutCaption(MainWindow* win) {
             rc.dx -= btnDx;
 
             win->captionBtn[CB_SYSTEM_MENU].rect = {rc.x, tabY, tabDy, tabDy};
-            win->captionBtn[CB_SYSTEM_MENU].visible = true;
-            rc.x += tabDy;
-            rc.dx -= tabDy;
+            win->captionBtn[CB_SYSTEM_MENU].visible = false;
 
             win->captionBtn[CB_MENU].rect = {rc.x, tabY, tabDy, tabDy};
             win->captionBtn[CB_MENU].visible = true;
@@ -9355,14 +9350,9 @@ static void DrawCaptionButton(MainWindow* win, HDC hdc, ButtonInfo* bi) {
             gfx.DrawLine(&p, rc.x, rc.y + i * rc.dy / 2, rc.x + rc.dx, rc.y + i * rc.dy / 2);
         }
     } else if (button == CB_SYSTEM_MENU) {
+        // Do not draw the small class icon in the top-left caption (hide logo)
         SolidBrush bgBrSys(GdiRgbFromCOLORREF(ThemeControlBackgroundColor()));
         gfx.FillRectangle(&bgBrSys, rButton.x, rButton.y, rButton.dx, rButton.dy);
-        int xIcon = GetSystemMetrics(SM_CXSMICON);
-        int yIcon = GetSystemMetrics(SM_CYSMICON);
-        HICON hIcon = (HICON)GetClassLongPtr(win->hwndFrame, GCLP_HICONSM);
-        int x = rButton.x + (rButton.dx - xIcon) / 2;
-        int y = rButton.y + (rButton.dy - yIcon) / 2;
-        DrawIconEx(hdc, x, y, hIcon, xIcon, yIcon, 0, nullptr, DI_NORMAL);
     }
 }
 
@@ -9484,22 +9474,22 @@ static LRESULT CustomCaptionFrameProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
             }
             bool isFullScreen = win->isFullScreen || win->presentation;
             if (IsZoomed(hwnd) && !isFullScreen) {
-                // when maximized, make client area fill the entire window
-                // rect to eliminate unused frame margins on all sides
-                // only keep 1px top border for DWM content preservation
-                r->left += 3;
-                r->top += 3;
-                r->right -= 3;
-                r->bottom -= 3;
+                int frameX = DpiScale(hwnd, GetSystemMetrics(SM_CXFRAME)) + DpiScale(hwnd, GetSystemMetrics(SM_CXPADDEDBORDER));
+                int frameY = DpiScale(hwnd, GetSystemMetrics(SM_CYFRAME)) + DpiScale(hwnd, GetSystemMetrics(SM_CXPADDEDBORDER));
+                r->left += frameX;
+                r->top += frameY;
+                r->right -= frameX;
+                r->bottom -= frameY;
+                r->bottom -= NON_CLIENT_BAND;
             } else if (!isFullScreen) {
                 // keep 1px non-client area at top so DWM preserves content
                 // during resize (returning 0 makes DWM clear the surface)
                 r->top += 1;
             }
             if (IsRunningOnWine()) {
-                logf("WM_NCCALCSIZE: after=(%ld,%ld,%ld,%ld) clientDy=%ld cyFrame=%d cyCaption=%d\n", r->left, r->top,
-                     r->right, r->bottom, r->bottom - r->top, GetSystemMetrics(SM_CYFRAME),
-                     GetSystemMetrics(SM_CYCAPTION));
+                 logf("WM_NCCALCSIZE: after=(%ld,%ld,%ld,%ld) clientDy=%ld cyFrame=%d cyCaption=%d\n", r->left, r->top,
+                     r->right, r->bottom, r->bottom - r->top, DpiScale(hwnd, GetSystemMetrics(SM_CYFRAME)),
+                     DpiScale(hwnd, GetSystemMetrics(SM_CYCAPTION)));
             }
             *callDef = false;
             return 0;
