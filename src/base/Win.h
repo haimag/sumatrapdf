@@ -177,6 +177,9 @@ Rect ChildPosWithinParent(HWND);
 HFONT GetMenuFont();
 HFONT CreateSimpleFont(HDC hdc, Str fontName, int fontSize);
 HFONT GetDefaultGuiFont(bool bold = false, bool italic = false);
+// per-window variant: returns the default GUI font sized for the monitor
+// the specified hwnd is on (uses per-monitor DPI when available)
+HFONT GetDefaultGuiFontForHwnd(HWND hwnd, bool bold = false, bool italic = false);
 HFONT GetDefaultGuiFontOfSize(int size);
 HFONT GetUserGuiFont(Str fontName, int size);
 HFONT GetUserGuiFontEx(Str fontName, int size, bool bold, bool italic);

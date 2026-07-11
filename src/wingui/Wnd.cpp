@@ -816,10 +816,6 @@ HWND Wnd::CreateControl(const CreateControlArgs& args) {
     // TODO: validate that className is one of the known controls?
 
     font = args.font;
-    if (!font) {
-        // TODO: need this?
-        font = GetDefaultGuiFont();
-    }
 
     DWORD style = args.style;
     if (args.parent) {
@@ -846,6 +842,11 @@ HWND Wnd::CreateControl(const CreateControlArgs& args) {
     ReportIf(!hwnd);
     if (!hwnd) {
         return nullptr;
+    }
+    // if caller didn't provide a font, pick a per-window default sized for
+    // the monitor the control lives on so fonts follow per-monitor DPI.
+    if (!font) {
+        font = GetDefaultGuiFontForHwnd(hwnd);
     }
     HwndSetFont(hwnd, font);
 
