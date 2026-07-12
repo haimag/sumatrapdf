@@ -43,6 +43,7 @@ struct FindBarWnd : Wnd {
 
     int barDx = 0;
     int barDy = 0;
+    int layoutDpi = 0; // last DPI we scaled fonts/icons for
     // when set, programmatic edits to the text don't kick off a search
     // (used while restoring text during a theme-change recreate)
     bool suppressTextChanged = false;
@@ -51,6 +52,7 @@ struct FindBarWnd : Wnd {
     ~FindBarWnd() override;
 
     bool Create(MainWindow* win);
+    void ScaleForDpi();
     void Layout();
 
     void OnTextChanged();
@@ -205,11 +207,43 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
     return true;
 }
 
+static void PositionFindBar(FindBarWnd* bar);
+
+// refresh fonts and toolbar icons when the bar's effective DPI changes (e.g.
+// the owned popup moved to a monitor with different scaling)
+void FindBarWnd::ScaleForDpi() {
+    int dpi = DpiGet(hwnd);
+    if (dpi == layoutDpi) {
+        return;
+    }
+    layoutDpi = dpi;
+    HFONT font = GetAppFont(hwnd);
+    if (edit) {
+        edit->SetFont(font);
+        edit->maxDx = DpiScale(hwnd, 240);
+    }
+    if (status) {
+        status->SetFont(font);
+    }
+    if (hwndBtns) {
+        int isz = RoundUp(DpiScale(hwnd, 16), 4);
+        HIMAGELIST oldHiml = himl;
+        himl = BuildStdToolbarImageList(isz);
+        SendMessageW(hwndBtns, TB_SETIMAGELIST, 0, (LPARAM)himl);
+        if (oldHiml) {
+            ImageList_Destroy(oldHiml);
+        }
+        SendMessageW(hwndBtns, TB_SETBUTTONSIZE, 0, MAKELONG(isz, isz));
+        SendMessageW(hwndBtns, TB_AUTOSIZE, 0, 0);
+    }
+}
+
 void FindBarWnd::Layout() {
+    ScaleForDpi();
     int p = DpiScale(hwnd, 6);
     int gap = DpiScale(hwnd, 4);
-    int editDx = DpiScale(edit->hwnd, 220);
-    int statusDx = DpiScale(status->hwnd, 88);
+    int editDx = DpiScale(hwnd, 220);
+    int statusDx = DpiScale(hwnd, 88);
 
     int editDy = edit->GetIdealSize().dy;
 
@@ -217,8 +251,8 @@ void FindBarWnd::Layout() {
     SendMessageW(hwndBtns, TB_GETMAXSIZE, 0, (LPARAM)&tbSz);
 
     int innerDy = std::max(editDy, (int)tbSz.cy);
-    int barDy = innerDy + 2 * p;
-    int barDx = p + editDx + gap + statusDx + gap + (int)tbSz.cx + p;
+    barDy = innerDy + 2 * p;
+    barDx = p + editDx + gap + statusDx + gap + (int)tbSz.cx + p;
 
     int x = p;
     MoveWindow(edit->hwnd, x, (barDy - editDy) / 2, editDx, editDy, TRUE);
@@ -238,6 +272,14 @@ void FindBarWnd::OnTextChanged() {
 }
 
 LRESULT FindBarWnd::WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_DPICHANGED) {
+        layoutDpi = 0;
+        Layout();
+        if (IsWindowVisible(h)) {
+            PositionFindBar(this);
+        }
+        return 0;
+    }
     if (msg == WM_ERASEBKGND) {
         HBRUSH br = BackgroundBrush();
         if (br) {
@@ -417,6 +459,7 @@ static void ShowCompactBar(MainWindow* win) {
     // reflect the current match-case / whole-word state on the toggle buttons
     FindBarSetMatchCaseChecked(win, win->findMatchCase);
     FindBarSetMatchWholeWordChecked(win, win->findMatchWholeWord);
+    bar->Layout();
     PositionFindBar(bar);
     ShowWindow(bar->hwnd, SW_SHOW);
     HwndSetFocus(win->hwndFindEdit);
@@ -507,6 +550,7 @@ void FindBarReposition(MainWindow* win) {
         HideFindBar(win);
         return;
     }
+    win->findBar->Layout();
     PositionFindBar(win->findBar);
 }
 
