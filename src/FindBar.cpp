@@ -208,8 +208,8 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
 void FindBarWnd::Layout() {
     int p = DpiScale(hwnd, 6);
     int gap = DpiScale(hwnd, 4);
-    int editDx = DpiScale(hwnd, 220);
-    int statusDx = DpiScale(hwnd, 88);
+    int editDx = DpiScale(edit->hwnd, 220);
+    int statusDx = DpiScale(status->hwnd, 88);
 
     int editDy = edit->GetIdealSize().dy;
 
@@ -217,8 +217,8 @@ void FindBarWnd::Layout() {
     SendMessageW(hwndBtns, TB_GETMAXSIZE, 0, (LPARAM)&tbSz);
 
     int innerDy = std::max(editDy, (int)tbSz.cy);
-    barDy = innerDy + 2 * p;
-    barDx = p + editDx + gap + statusDx + gap + (int)tbSz.cx + p;
+    int barDy = innerDy + 2 * p;
+    int barDx = p + editDx + gap + statusDx + gap + (int)tbSz.cx + p;
 
     int x = p;
     MoveWindow(edit->hwnd, x, (barDy - editDy) / 2, editDx, editDy, TRUE);
@@ -227,7 +227,7 @@ void FindBarWnd::Layout() {
     x += statusDx + gap;
     MoveWindow(hwndBtns, x, (barDy - (int)tbSz.cy) / 2, (int)tbSz.cx, (int)tbSz.cy, TRUE);
 
-    SetWindowPos(hwnd, nullptr, 0, 0, barDx, barDy, SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(hwnd, nullptr, 0, 0, barDx, barDy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void FindBarWnd::OnTextChanged() {
