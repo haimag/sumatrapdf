@@ -21,6 +21,7 @@
 #include "CodexBuild.h"
 #include "Translations.h"
 
+
 constexpr UINT WM_SELECTION_TRANSLATE_DONE = WM_USER + 211;
 
 constexpr int kIdSrcText = 100;
