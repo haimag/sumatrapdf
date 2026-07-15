@@ -210,6 +210,10 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
 }
 
 void FindBarWnd::Layout(int forceBarDx) {
+    // Guard: WM_SIZE fires during CreateCustom before child controls exist.
+    if (!edit || !hwndBtns) {
+        return;
+    }
     int p = DpiScale(hwnd, 6);
     int gap = DpiScale(hwnd, 4);
     int statusDx = DpiScale(hwnd, 88);
