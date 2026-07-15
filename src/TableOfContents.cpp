@@ -1156,6 +1156,32 @@ static LRESULT CALLBACK WndProcTocBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                 ToggleTocBox(win);
             }
             break;
+
+        case WM_DPICHANGED_AFTERPARENT: {
+            // OnDpiChanged in the parent frame calls Wnd::SetFont which stores
+            // the new HFONT but does NOT send WM_SETFONT to the underlying Win32
+            // HWND (the method body is a stub with a TODO comment). As a result
+            // all three TOC controls keep rendering with their creation-time,
+            // old-DPI fonts after a monitor change. Re-apply the fonts here:
+            // in PerMonitorV2 mode hwndTocBox inherits the frame's new DPI, so
+            // DpiGet(hwnd) is the correct reference for all three controls.
+            if (win->tocLabelWithClose && win->tocLabelWithClose->hwnd) {
+                HFONT f = GetAppSidebarLabelFont(hwnd);
+                win->tocLabelWithClose->SetFont(f);
+                SendMessageW(win->tocLabelWithClose->hwnd, WM_SETFONT, (WPARAM)f, TRUE);
+            }
+            if (win->tocFilterEdit && win->tocFilterEdit->hwnd) {
+                HFONT f = GetAppFont(hwnd);
+                win->tocFilterEdit->SetFont(f);
+                SendMessageW(win->tocFilterEdit->hwnd, WM_SETFONT, (WPARAM)f, TRUE);
+            }
+            if (win->tocTreeView && win->tocTreeView->hwnd) {
+                HFONT f = GetAppTreeFont(hwnd);
+                win->tocTreeView->SetFont(f);
+                SendMessageW(win->tocTreeView->hwnd, WM_SETFONT, (WPARAM)f, TRUE);
+            }
+            break;
+        }
     }
     return DefSubclassProc(hwnd, msg, wp, lp);
 }
