@@ -918,6 +918,74 @@ static void StartTranslation(SelectionTranslateDialog* dlg) {
     RunAsync(MkFunc0(SelectionTranslateThread, task), "SelectionTranslate");
 }
 
+// Rebuild all DPI-scaled state and re-layout after the window moves to a
+// monitor with a different DPI. Called from WM_DPICHANGED.
+static void OnSelectionTranslateDpiChanged(SelectionTranslateDialog* dlg, RECT* suggested) {
+    HWND hwnd = dlg->hwnd;
+
+    // GetDpiForWindow already reports the new DPI at WM_DPICHANGED time.
+    HFONT newFont = GetDefaultGuiFontForHwnd(hwnd);
+    dlg->hFont = newFont;
+
+    // Push updated font to every child control (no immediate repaint; we
+    // redraw the whole window at the end).
+    HWND controls[] = {
+        dlg->hwndTranslateLabel, dlg->hwndSrcText,  dlg->hwndSrcLang,
+        dlg->hwndFromLabel,      dlg->hwndDstLang,  dlg->hwndToLabel,
+        dlg->hwndTranslateBtn,   dlg->hwndCloseBtn, dlg->hwndResultLabel,
+        dlg->hwndResultText,
+    };
+    for (HWND h : controls) {
+        if (h) {
+            SetWindowFont(h, newFont, FALSE);
+        }
+    }
+
+    // Recalculate DPI-scaled stored values.
+    dlg->pad = DpiScale(hwnd, 12);
+    dlg->gap = DpiScale(hwnd, 8);
+    dlg->labelDy = DpiScale(hwnd, 16);
+    dlg->btnDy = DpiScale(hwnd, 28);
+    dlg->btnW = DpiScale(hwnd, 96);
+    dlg->srcTextDy = DpiScale(hwnd, 140);
+
+    // Recalculate font-metric-derived values (font already updated above).
+    int editBorder = GetSystemMetrics(SM_CXEDGE);
+    LRESULT margins = SendMessageW(dlg->hwndSrcText, EM_GETMARGINS, 0, 0);
+    dlg->labelShift = editBorder + LOWORD(margins);
+    dlg->comboRowDy = ComboVisibleDy(dlg->hwndSrcLang);
+    dlg->labelYOffset = ComboLabelYOffset(dlg->hwndSrcLang, hwnd, dlg->hFont);
+    int charDx = HwndMeasureText(hwnd, " ", dlg->hFont).dx;
+    Size fromLabelSize = HwndMeasureText(hwnd, _TRA("From:"), dlg->hFont);
+    Size toLabelSize = HwndMeasureText(hwnd, _TRA("To:"), dlg->hFont);
+    dlg->fromLabelDx = fromLabelSize.dx;
+    dlg->toLabelDx = toLabelSize.dx;
+    dlg->srcComboX = dlg->pad + dlg->labelShift + fromLabelSize.dx + charDx;
+    dlg->toComboOffset = dlg->labelShift + toLabelSize.dx + charDx;
+
+    // Recompute minimum client dimensions at the new DPI.
+    int srcTextY = dlg->pad + dlg->labelDy + dlg->gap;
+    int langRowY = srcTextY + dlg->srcTextDy + dlg->gap;
+    int yAfterLangs = langRowY + dlg->comboRowDy + dlg->gap;
+    dlg->minClientW = DpiScale(hwnd, 250);
+    dlg->minClientH = yAfterLangs + dlg->btnDy + dlg->pad;
+    if (dlg->resultVisible) {
+        int minResultDy = DpiScale(hwnd, 60);
+        dlg->minClientH =
+            yAfterLangs + dlg->labelDy + dlg->gap + minResultDy + dlg->gap + dlg->btnDy + dlg->pad;
+    }
+
+    // Move window to the rect Windows suggests for the new DPI.
+    // This triggers WM_SIZE → LayoutDialogControls, re-laying out at new DPI.
+    if (suggested) {
+        SetWindowPos(hwnd, nullptr, suggested->left, suggested->top,
+                     suggested->right - suggested->left, suggested->bottom - suggested->top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    RedrawWindow(hwnd, nullptr, nullptr, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+}
+
 static LRESULT CALLBACK SelectionTranslateDlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     SelectionTranslateDialog* dlg = nullptr;
     if (msg == WM_CREATE) {
@@ -933,6 +1001,10 @@ static LRESULT CALLBACK SelectionTranslateDlgProc(HWND hwnd, UINT msg, WPARAM wp
     }
 
     switch (msg) {
+        case WM_DPICHANGED: {
+            OnSelectionTranslateDpiChanged(dlg, (RECT*)lp);
+            return 0;
+        }
         case WM_SIZE: {
             int clientW = LOWORD(lp);
             int clientH = HIWORD(lp);
@@ -1029,7 +1101,8 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
     auto dlg = new SelectionTranslateDialog();
     dlg->hwndOwner = hwndOwner;
     dlg->backend = backend;
-    dlg->hFont = GetDefaultGuiFont();
+    // Use the owner window as DPI reference before our own hwnd exists.
+    dlg->hFont = GetDefaultGuiFontForHwnd(hwndOwner);
 
     TempStr title = fmt(_TRA("Translate with %s").s, BackendDisplayName(backend));
 

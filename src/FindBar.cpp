@@ -46,12 +46,16 @@ struct FindBarWnd : Wnd {
     // when set, programmatic edits to the text don't kick off a search
     // (used while restoring text during a theme-change recreate)
     bool suppressTextChanged = false;
+    // guards against WM_SIZE (fired by Layout's own SetWindowPos) re-entering Layout
+    bool inLayout = false;
 
     FindBarWnd() = default;
     ~FindBarWnd() override;
 
     bool Create(MainWindow* win);
-    void Layout();
+    // forceBarDx > 0: distribute that exact window width, letting the edit expand;
+    // 0: use the default 220-logical-pixel edit width.
+    void Layout(int forceBarDx = 0);
 
     void OnTextChanged();
 
@@ -205,10 +209,9 @@ bool FindBarWnd::Create(MainWindow* mainWin) {
     return true;
 }
 
-void FindBarWnd::Layout() {
+void FindBarWnd::Layout(int forceBarDx) {
     int p = DpiScale(hwnd, 6);
     int gap = DpiScale(hwnd, 4);
-    int editDx = DpiScale(hwnd, 220);
     int statusDx = DpiScale(hwnd, 88);
 
     int editDy = edit->GetIdealSize().dy;
@@ -218,7 +221,19 @@ void FindBarWnd::Layout() {
 
     int innerDy = std::max(editDy, (int)tbSz.cy);
     barDy = innerDy + 2 * p;
-    barDx = p + editDx + gap + statusDx + gap + (int)tbSz.cx + p;
+
+    // Width of everything except the edit box: left-p + gap + status + gap + toolbar + right-p
+    int fixedDx = 2 * p + 2 * gap + statusDx + (int)tbSz.cx;
+    int minEditDx = DpiScale(hwnd, 80);
+    int editDx;
+    if (forceBarDx > 0) {
+        // Called from WM_SIZE: derive editDx from the actual window width.
+        editDx = std::max(forceBarDx - fixedDx, minEditDx);
+    } else {
+        // Default: 220 logical pixels.
+        editDx = DpiScale(hwnd, 220);
+    }
+    barDx = editDx + fixedDx;
 
     int x = p;
     MoveWindow(edit->hwnd, x, (barDy - editDy) / 2, editDx, editDy, TRUE);
@@ -227,7 +242,10 @@ void FindBarWnd::Layout() {
     x += statusDx + gap;
     MoveWindow(hwndBtns, x, (barDy - (int)tbSz.cy) / 2, (int)tbSz.cx, (int)tbSz.cy, TRUE);
 
+    // Guard: Layout's own SetWindowPos triggers WM_SIZE; inLayout prevents re-entry.
+    inLayout = true;
     SetWindowPos(hwnd, nullptr, 0, 0, barDx, barDy, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    inLayout = false;
 }
 
 void FindBarWnd::OnTextChanged() {
@@ -237,7 +255,79 @@ void FindBarWnd::OnTextChanged() {
     OnFindBarTextChanged(win);
 }
 
+// forward declaration — defined further below
+static void PositionFindBar(FindBarWnd* bar);
+
 LRESULT FindBarWnd::WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_NCHITTEST) {
+        // Return HTLEFT for the left-edge grab zone so the user can drag it to
+        // widen or narrow the edit field.
+        RECT wr;
+        GetWindowRect(h, &wr);
+        if ((int)(short)LOWORD(lp) < wr.left + DpiScale(h, 6)) {
+            return HTLEFT;
+        }
+    }
+    if (msg == WM_SIZE) {
+        if (!inLayout) {
+            // User-initiated resize (not the SetWindowPos inside Layout):
+            // re-layout using the new window width so the edit expands/contracts.
+            // Use GetWindowRect (window coords) rather than LOWORD(lp) (client
+            // coords) to stay consistent with barDx, which is a window-size value.
+            RECT wr;
+            GetWindowRect(h, &wr);
+            Layout(wr.right - wr.left);
+        }
+        return 0;
+    }
+    if (msg == WM_GETMINMAXINFO && barDy > 0) {
+        // Enforce a minimum bar width so the edit never disappears, and lock the
+        // height (the bar height is determined by font metrics, not by the user).
+        int p = DpiScale(h, 6);
+        int gap = DpiScale(h, 4);
+        int statusDx = DpiScale(h, 88);
+        SIZE tbSz{};
+        if (hwndBtns) {
+            SendMessageW(hwndBtns, TB_GETMAXSIZE, 0, (LPARAM)&tbSz);
+        }
+        int minEditDx = DpiScale(h, 80);
+        int minBarDx = minEditDx + 2 * p + 2 * gap + statusDx + (int)tbSz.cx;
+        auto* mmi = (MINMAXINFO*)lp;
+        mmi->ptMinTrackSize.x = minBarDx;
+        mmi->ptMinTrackSize.y = barDy;
+        mmi->ptMaxTrackSize.y = barDy;
+        return 0;
+    }
+    if (msg == WM_DPICHANGED) {
+        // GetDpiForWindow already returns the new DPI at WM_DPICHANGED time.
+        // Update fonts on the edit and status controls.
+        HFONT newFont = GetAppFont(h);
+        if (edit) {
+            edit->maxDx = DpiScale(h, 240);
+            edit->SetFont(newFont);
+        }
+        if (status) {
+            status->SetFont(newFont);
+        }
+        // Rebuild the toolbar image list at the new icon size.
+        if (hwndBtns) {
+            int isz = RoundUp(DpiScale(h, 16), 4);
+            HIMAGELIST oldHiml = himl;
+            himl = BuildStdToolbarImageList(isz);
+            SendMessageW(hwndBtns, TB_SETIMAGELIST, 0, (LPARAM)himl);
+            SendMessageW(hwndBtns, TB_SETBUTTONSIZE, 0, MAKELONG(isz, isz));
+            SendMessageW(hwndBtns, TB_AUTOSIZE, 0, 0);
+            if (oldHiml) {
+                ImageList_Destroy(oldHiml);
+            }
+        }
+        // Recompute barDx/barDy at the new DPI and resize the bar window.
+        Layout();
+        // Re-align to the frame's right edge (barDx changed so the old
+        // position is now wrong).
+        PositionFindBar(this);
+        return 0;
+    }
     if (msg == WM_ERASEBKGND) {
         HBRUSH br = BackgroundBrush();
         if (br) {
