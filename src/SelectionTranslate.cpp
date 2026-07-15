@@ -77,6 +77,10 @@ struct SelectionTranslateDialog {
     HWND hwndResultText = nullptr;
     HWND hwndTranslateBtn = nullptr;
     HWND hwndCloseBtn = nullptr;
+    // labels we need to reposition on resize
+    HWND hwndTranslateLabel = nullptr;
+    HWND hwndFromLabel = nullptr;
+    HWND hwndToLabel = nullptr;
     HFONT hFont = nullptr;
     AIChatBackend backend = AIChatBackend::Grok;
     bool translating = false;
@@ -88,6 +92,19 @@ struct SelectionTranslateDialog {
     int gap = 0;
     int btnDy = 0;
     int btnW = 0;
+    // fixed vertical dimensions
+    int labelDy = 0;
+    int srcTextDy = 0;
+    int comboRowDy = 0;
+    int labelYOffset = 0;
+    // fixed horizontal anchors for language row
+    int srcComboX = 0;    // fixed x of src lang combo
+    int toComboOffset = 0; // offset from col2X to dst combo x
+    int fromLabelDx = 0;
+    int toLabelDx = 0;
+    // minimum client area dimensions (for WM_GETMINMAXINFO)
+    int minClientW = 0;
+    int minClientH = 0;
 };
 
 struct SelectionTranslateTaskData {
@@ -694,37 +711,128 @@ static void LayoutButtons(SelectionTranslateDialog* dlg, int y) {
     SetWindowPos(dlg->hwndCloseBtn, nullptr, x + innerDx - dlg->btnW, y, dlg->btnW, dlg->btnDy, SWP_NOZORDER);
 }
 
+static void LayoutDialogControls(SelectionTranslateDialog* dlg, int clientW, int clientH) {
+    if (!dlg || !dlg->hwnd) {
+        return;
+    }
+    HWND hwnd = dlg->hwnd;
+    int pad = dlg->pad;
+    int gap = dlg->gap;
+    int x = pad;
+    dlg->contentDx = clientW - 2 * pad;
+    int contentDx = dlg->contentDx;
+    int colDx = (contentDx - gap) / 2;
+    int col2X = x + colDx + gap;
+    int dropdownH = DpiScale(hwnd, 200);
+    constexpr UINT kMove = SWP_NOZORDER | SWP_NOACTIVATE;
+
+    // "Translate:" label - only width changes
+    int labelRowY = pad;
+    if (dlg->hwndTranslateLabel) {
+        SetWindowPos(dlg->hwndTranslateLabel, nullptr, x + dlg->labelShift, labelRowY,
+                     contentDx - dlg->labelShift, dlg->labelDy, kMove);
+    }
+
+    // Source text edit
+    int srcTextY = labelRowY + dlg->labelDy + gap;
+    if (dlg->hwndSrcText) {
+        SetWindowPos(dlg->hwndSrcText, nullptr, x, srcTextY, contentDx, dlg->srcTextDy, kMove);
+    }
+
+    // Language row
+    int langRowY = srcTextY + dlg->srcTextDy + gap;
+
+    // From: combo
+    int newSrcComboDx = x + colDx - dlg->srcComboX;
+    if (newSrcComboDx < DpiScale(hwnd, 60)) {
+        newSrcComboDx = DpiScale(hwnd, 60);
+    }
+    if (dlg->hwndSrcLang) {
+        MoveWindow(dlg->hwndSrcLang, dlg->srcComboX, langRowY, newSrcComboDx, dlg->comboRowDy + dropdownH, TRUE);
+    }
+    if (dlg->hwndFromLabel) {
+        SetWindowPos(dlg->hwndFromLabel, nullptr, x + dlg->labelShift, langRowY + dlg->labelYOffset,
+                     dlg->fromLabelDx, dlg->labelDy, kMove);
+    }
+
+    // To: combo
+    int dstComboX = col2X + dlg->toComboOffset;
+    int newDstComboDx = x + contentDx - dstComboX;
+    if (newDstComboDx < DpiScale(hwnd, 60)) {
+        newDstComboDx = DpiScale(hwnd, 60);
+    }
+    if (dlg->hwndDstLang) {
+        MoveWindow(dlg->hwndDstLang, dstComboX, langRowY, newDstComboDx, dlg->comboRowDy + dropdownH, TRUE);
+    }
+    int toLabelX = col2X + dlg->labelShift;
+    if (dlg->hwndToLabel) {
+        SetWindowPos(dlg->hwndToLabel, nullptr, toLabelX, langRowY + dlg->labelYOffset,
+                     dlg->toLabelDx, dlg->labelDy, kMove);
+    }
+
+    dlg->yAfterLangs = langRowY + dlg->comboRowDy + gap;
+
+    // Result area + buttons
+    if (dlg->resultVisible && dlg->hwndResultLabel && dlg->hwndResultText) {
+        int y = dlg->yAfterLangs;
+        SetWindowPos(dlg->hwndResultLabel, nullptr, x + dlg->labelShift, y,
+                     contentDx - dlg->labelShift, dlg->labelDy, kMove);
+        y += dlg->labelDy + gap;
+        int btnAreaH = gap + dlg->btnDy + pad;
+        int resultDy = clientH - y - btnAreaH;
+        int minResultDy = DpiScale(hwnd, 60);
+        if (resultDy < minResultDy) {
+            resultDy = minResultDy;
+        }
+        SetWindowPos(dlg->hwndResultText, nullptr, x, y, contentDx, resultDy, kMove);
+        y += resultDy + gap;
+        LayoutButtons(dlg, y);
+    } else {
+        LayoutButtons(dlg, dlg->yAfterLangs);
+    }
+}
+
 static void ShowTranslationResult(SelectionTranslateDialog* dlg, Str text, bool isError) {
     if (!dlg || !dlg->hwnd) {
         return;
     }
     HWND hwnd = dlg->hwnd;
-    int labelDy = DpiScale(hwnd, 16);
-    int resultDy = DpiScale(hwnd, 120);
-    int x = dlg->pad;
-    int y = dlg->yAfterLangs;
     Str label = isError ? Str(_TRA("Error:")) : Str(_TRA("Translation:"));
 
     if (!dlg->resultVisible) {
-        dlg->hwndResultLabel = CreateWindowExW(0, L"STATIC", CWStrTemp(label), WS_CHILD | WS_VISIBLE,
-                                               x + dlg->labelShift, y, dlg->contentDx - dlg->labelShift, labelDy, hwnd,
-                                               nullptr, GetModuleHandleW(nullptr), nullptr);
+        // Create controls hidden; LayoutDialogControls will position them.
+        int x = dlg->pad;
+        int y = dlg->yAfterLangs;
+        dlg->hwndResultLabel = CreateWindowExW(0, L"STATIC", CWStrTemp(label), WS_CHILD,
+                                               x + dlg->labelShift, y, dlg->contentDx - dlg->labelShift, dlg->labelDy,
+                                               hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
         SetWindowFont(dlg->hwndResultLabel, dlg->hFont, TRUE);
-        y += labelDy + dlg->gap;
+        int resultDy = DpiScale(hwnd, 120);
         dlg->hwndResultText = CreateWindowExW(
             WS_EX_CLIENTEDGE, L"EDIT", L"",
-            WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | ES_READONLY, x, y, dlg->contentDx,
-            resultDy, hwnd, (HMENU)(INT_PTR)kIdResultText, GetModuleHandleW(nullptr), nullptr);
+            WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL | ES_READONLY, x, y, dlg->contentDx, resultDy,
+            hwnd, (HMENU)(INT_PTR)kIdResultText, GetModuleHandleW(nullptr), nullptr);
         SetWindowFont(dlg->hwndResultText, dlg->hFont, TRUE);
-        y += resultDy + dlg->gap;
-        LayoutButtons(dlg, y);
-        int clientH = y + dlg->btnDy + dlg->pad;
-        SetDialogClientSize(hwnd, dlg->contentDx + 2 * dlg->pad, clientH);
-        CenterDialog(hwnd, dlg->hwndOwner);
+
         dlg->resultVisible = true;
-    }
-    if (dlg->hwndResultLabel) {
-        HwndSetText(dlg->hwndResultLabel, label);
+
+        // Grow the window if it isn't already tall enough.
+        RECT rc{};
+        GetClientRect(hwnd, &rc);
+        int clientW = rc.right - rc.left;
+        int currentH = rc.bottom - rc.top;
+        int minH = dlg->yAfterLangs + dlg->labelDy + dlg->gap + resultDy + dlg->gap + dlg->btnDy + dlg->pad;
+        if (currentH < minH) {
+            // SetDialogClientSize triggers WM_SIZE → LayoutDialogControls.
+            SetDialogClientSize(hwnd, clientW, minH);
+            CenterDialog(hwnd, dlg->hwndOwner);
+        } else {
+            LayoutDialogControls(dlg, clientW, currentH);
+        }
+    } else {
+        if (dlg->hwndResultLabel) {
+            HwndSetText(dlg->hwndResultLabel, label);
+        }
     }
     HwndSetText(dlg->hwndResultText, text);
     ShowWindow(dlg->hwndResultLabel, SW_SHOW);
@@ -824,6 +932,27 @@ static LRESULT CALLBACK SelectionTranslateDlgProc(HWND hwnd, UINT msg, WPARAM wp
     }
 
     switch (msg) {
+        case WM_SIZE: {
+            int clientW = LOWORD(lp);
+            int clientH = HIWORD(lp);
+            if (clientW > 0 && clientH > 0) {
+                LayoutDialogControls(dlg, clientW, clientH);
+            }
+            return 0;
+        }
+        case WM_GETMINMAXINFO: {
+            if (dlg->minClientW <= 0 || dlg->minClientH <= 0) {
+                break;
+            }
+            auto* mmi = (MINMAXINFO*)lp;
+            RECT rc{0, 0, dlg->minClientW, dlg->minClientH};
+            DWORD style = (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE);
+            DWORD exStyle = (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            AdjustWindowRectEx(&rc, style, FALSE, exStyle);
+            mmi->ptMinTrackSize.x = rc.right - rc.left;
+            mmi->ptMinTrackSize.y = rc.bottom - rc.top;
+            return 0;
+        }
         case WM_COMMAND: {
             HWND ctl = (HWND)lp;
             int code = HIWORD(wp);
@@ -904,8 +1033,8 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
     TempStr title = fmt(_TRA("Translate with %s").s, BackendDisplayName(backend));
 
     HWND hwnd = CreateWindowExW(WS_EX_DLGMODALFRAME, kSelectionTranslateWinClass, CWStrTemp(title),
-                                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT,
-                                100, 100, hwndOwner, nullptr, GetModuleHandleW(nullptr), dlg);
+                                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN,
+                                CW_USEDEFAULT, CW_USEDEFAULT, 100, 100, hwndOwner, nullptr, GetModuleHandleW(nullptr), dlg);
     if (!hwnd) {
         EnableWindow(hwndOwner, TRUE);
         delete dlg;
@@ -914,7 +1043,8 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
 
     dlg->pad = DpiScale(hwnd, 12);
     dlg->gap = DpiScale(hwnd, 8);
-    int labelDy = DpiScale(hwnd, 16);
+    dlg->labelDy = DpiScale(hwnd, 16);
+    int labelDy = dlg->labelDy;
     dlg->btnDy = DpiScale(hwnd, 28);
     dlg->btnW = DpiScale(hwnd, 96);
     int clientW = DpiScale(hwndOwner, 500);
@@ -932,7 +1062,8 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
 
     int translateLabelY = y;
     y += labelDy + dlg->gap;
-    int srcTextDy = DpiScale(hwnd, 140);
+    dlg->srcTextDy = DpiScale(hwnd, 140);
+    int srcTextDy = dlg->srcTextDy;
     dlg->hwndSrcText =
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", CWStrTemp(selText),
                         WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL, x, y, dlg->contentDx,
@@ -941,7 +1072,8 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
     int editBorder = GetSystemMetrics(SM_CXEDGE);
     LRESULT margins = SendMessageW(dlg->hwndSrcText, EM_GETMARGINS, 0, 0);
     dlg->labelShift = editBorder + LOWORD(margins);
-    createLabel(Str(_TRA("Translate:")), x + dlg->labelShift, translateLabelY, dlg->contentDx - dlg->labelShift);
+    dlg->hwndTranslateLabel =
+        createLabel(Str(_TRA("Translate:")), x + dlg->labelShift, translateLabelY, dlg->contentDx - dlg->labelShift);
     y += srcTextDy + dlg->gap;
 
     int charDx = HwndMeasureText(hwnd, " ", dlg->hFont).dx;
@@ -957,10 +1089,12 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
                                        (HMENU)(INT_PTR)kIdSrcLang, GetModuleHandleW(nullptr), nullptr);
     SetWindowFont(dlg->hwndSrcLang, dlg->hFont, TRUE);
     int comboRowDy = ComboVisibleDy(dlg->hwndSrcLang);
+    dlg->comboRowDy = comboRowDy;
     MoveWindow(dlg->hwndSrcLang, srcComboX, langRowY, srcComboDx, comboRowDy + DpiScale(hwnd, 200), TRUE);
     PopulateLanguageCombo(dlg->hwndSrcLang, kSrcLangAuto, true);
     int labelYOffset = ComboLabelYOffset(dlg->hwndSrcLang, hwnd, dlg->hFont);
-    createLabel(Str(_TRA("From:")), fromLabelX, langRowY + labelYOffset, fromLabelSize.dx);
+    dlg->labelYOffset = labelYOffset;
+    dlg->hwndFromLabel = createLabel(Str(_TRA("From:")), fromLabelX, langRowY + labelYOffset, fromLabelSize.dx);
 
     int toLabelX = col2X + dlg->labelShift;
     int dstComboX = toLabelX + toLabelSize.dx + charDx;
@@ -971,7 +1105,14 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
     SetWindowFont(dlg->hwndDstLang, dlg->hFont, TRUE);
     MoveWindow(dlg->hwndDstLang, dstComboX, langRowY, dstComboDx, comboRowDy + DpiScale(hwnd, 200), TRUE);
     PopulateLanguageCombo(dlg->hwndDstLang, DefaultDestinationLanguageTemp(), false);
-    createLabel(Str(_TRA("To:")), toLabelX, langRowY + labelYOffset, toLabelSize.dx);
+    dlg->hwndToLabel = createLabel(Str(_TRA("To:")), toLabelX, langRowY + labelYOffset, toLabelSize.dx);
+
+    // Store horizontal anchors for language row resize.
+    dlg->srcComboX = srcComboX;                       // fixed x of src combo
+    dlg->toComboOffset = dlg->labelShift + toLabelSize.dx + charDx; // offset from col2X to dst combo x
+    dlg->fromLabelDx = fromLabelSize.dx;
+    dlg->toLabelDx = toLabelSize.dx;
+
     y += comboRowDy + dlg->gap;
     dlg->yAfterLangs = y;
 
@@ -986,6 +1127,9 @@ void ShowSelectionTranslateDialog(WindowTab* tab, AIChatBackend backend) {
     LayoutButtons(dlg, y);
 
     int clientH = y + dlg->btnDy + dlg->pad;
+    // Minimum size: can't get smaller than the initial layout.
+    dlg->minClientW = clientW / 2;
+    dlg->minClientH = clientH;
     SetDialogClientSize(hwnd, clientW, clientH);
     CenterDialog(hwnd, hwndOwner);
 
