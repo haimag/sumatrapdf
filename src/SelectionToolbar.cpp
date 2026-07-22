@@ -5,6 +5,7 @@
 #include "base/ScopedWin.h"
 #include "base/Win.h"
 #include "base/Dpi.h"
+#include "base/WinDynCalls.h"
 #include "base/GdiPlus.h"
 
 #include "wingui/UIModels.h"
@@ -46,6 +47,8 @@ struct SelectionToolbar {
     HWND hwnd = nullptr;
     HFONT font = nullptr;
     bool fontOwned = false;
+    int targetDpi = 96; // DPI of the monitor where the toolbar is displayed
+    int fontDpi = 0;    // DPI at which the font was created
     int hotIndex = -1;
     int pressedIndex = -1;
     bool trackingMouse = false;
@@ -165,7 +168,7 @@ static void StrokeRoundedRect(HDC hdc, const Rect& rc, int radius, COLORREF col)
 
 // clip the popup window to a rounded rect so the corners don't show as
 // opaque squares over the document
-static void UpdateToolbarWindowRgn(HWND hwnd, int cornerRadius) {
+static void UpdateToolbarWindowRgn(HWND hwnd, int radius) {
     Rect card = ClientRect(hwnd);
     if (card.dx < 1) {
         card.dx = 1;
@@ -173,7 +176,6 @@ static void UpdateToolbarWindowRgn(HWND hwnd, int cornerRadius) {
     if (card.dy < 1) {
         card.dy = 1;
     }
-    int radius = DpiScale(hwnd, cornerRadius);
     HRGN rgn = CreateRoundRectRgn(card.x, card.y, card.x + card.dx + 1, card.y + card.dy + 1, radius, radius);
     if (!SetWindowRgn(hwnd, rgn, TRUE)) {
         DeleteObject(rgn);
@@ -190,12 +192,50 @@ static HFONT CreateScaledFontFrom(HFONT base, int pct) {
     return CreateFontIndirectW(&lf);
 }
 
+// Determine DPI of the monitor on which the selection (in canvas coordinates) will
+// appear, so the toolbar lays out at the correct scale on multi-monitor setups
+// with different DPI settings.
+static int GetTargetDpi(MainWindow* win, const Rect& selCanvas) {
+    // use the horizontal center of the selection, matching where PositionToolbar
+    // places the toolbar, in case the selection spans monitors with different DPIs
+    POINT pt = {selCanvas.x + selCanvas.dx / 2, selCanvas.y};
+    ClientToScreen(win->hwndCanvas, &pt);
+    HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    if (hMon && DynGetDpiForMonitor) {
+        uint dpiX = 96, dpiY = 96;
+        if (SUCCEEDED(DynGetDpiForMonitor(hMon, 0, &dpiX, &dpiY)) && dpiX >= 72) {
+            return RoundUp((int)dpiX, 4);
+        }
+    }
+    return DpiGet(win->hwndCanvas);
+}
+
+// Recreate the toolbar font when the target DPI changes, so text size matches
+// the monitor where the toolbar is actually displayed.
+static void EnsureFontForDpi(SelectionToolbar* tb, int dpi) {
+    if (!tb->font || tb->fontDpi == dpi) {
+        return;
+    }
+    if (tb->fontOwned) {
+        LOGFONTW lf{};
+        GetObjectW(tb->font, sizeof(lf), &lf);
+        lf.lfHeight = MulDiv(lf.lfHeight, dpi, tb->fontDpi);
+        HFONT newFont = CreateFontIndirectW(&lf);
+        if (newFont) {
+            DeleteObject(tb->font);
+            tb->font = newFont;
+            tb->fontOwned = true;
+            tb->fontDpi = dpi;
+        }
+    }
+}
+
 static void LayoutToolbar(SelectionToolbar* tb) {
     HWND hwnd = tb->hwnd;
-    int padX = DpiScale(hwnd, kBtnPadX);
-    int padY = DpiScale(hwnd, kBtnPadY);
-    int margin = DpiScale(hwnd, kMargin);
-    int gap = DpiScale(hwnd, kBtnGap);
+    int padX = MulDiv(kBtnPadX, tb->targetDpi, 96);
+    int padY = MulDiv(kBtnPadY, tb->targetDpi, 96);
+    int margin = MulDiv(kMargin, tb->targetDpi, 96);
+    int gap = MulDiv(kBtnGap, tb->targetDpi, 96);
 
     int x = margin;
     int maxDy = 0;
@@ -218,7 +258,7 @@ static void LayoutToolbar(SelectionToolbar* tb) {
         tb->buttons[i].rc.dy = maxDy;
     }
     tb->size = Size(x + margin, maxDy + 2 * margin);
-    UpdateToolbarWindowRgn(hwnd, kCornerRadius);
+    UpdateToolbarWindowRgn(hwnd, MulDiv(kCornerRadius, tb->targetDpi, 96));
 }
 
 static int ButtonFromPoint(SelectionToolbar* tb, int x, int y) {
@@ -236,8 +276,8 @@ static void PaintToolbar(SelectionToolbar* tb, HDC hdc) {
     Rect rc = ClientRect(hwnd);
     COLORREF bgCol = SelBarBg();
     COLORREF hoverBg = SelBarHoverBg(bgCol);
-    int cornerRadius = DpiScale(hwnd, kCornerRadius);
-    int btnRadius = DpiScale(hwnd, kButtonRadius);
+    int cornerRadius = MulDiv(kCornerRadius, tb->targetDpi, 96);
+    int btnRadius = MulDiv(kButtonRadius, tb->targetDpi, 96);
 
     FillRoundedRect(hdc, rc, cornerRadius, bgCol);
     StrokeRoundedRect(hdc, rc, cornerRadius, SelBarBorderColor());
@@ -401,7 +441,7 @@ static bool GetSelectionBounds(MainWindow* win, Rect& out) {
 static void PositionToolbar(SelectionToolbar* tb, const Rect& sel) {
     MainWindow* win = tb->win;
     Rect canvas = win->canvasRc;
-    int gap = DpiScale(tb->hwnd, 6);
+    int gap = MulDiv(6, tb->targetDpi, 96);
     int w = tb->size.dx;
     int h = tb->size.dy;
 
@@ -453,6 +493,7 @@ static SelectionToolbar* GetOrCreateToolbar(MainWindow* win) {
     }
     tb->font = CreateScaledFontFrom(GetAppFont(hwnd), kToolbarFontPct);
     tb->fontOwned = tb->font != nullptr;
+    tb->fontDpi = DpiGet(hwnd);
     win->selectionToolbar = tb;
     return tb;
 }
@@ -487,6 +528,8 @@ void ShowSelectionToolbar(MainWindow* win) {
     if (tb->nButtons == 0) {
         return;
     }
+    tb->targetDpi = GetTargetDpi(win, sel);
+    EnsureFontForDpi(tb, tb->targetDpi);
     LayoutToolbar(tb);
     PositionToolbar(tb, sel);
     ShowWindow(tb->hwnd, SW_SHOWNOACTIVATE);
@@ -526,6 +569,8 @@ void UpdateSelectionToolbarPosition(MainWindow* win) {
 
     Rect prevPlaced = tb->lastPlaced;
     InitButtons(tb, win);
+    tb->targetDpi = GetTargetDpi(win, sel);
+    EnsureFontForDpi(tb, tb->targetDpi);
     LayoutToolbar(tb);
     PositionToolbar(tb, sel);
     if (tb->lastPlaced != prevPlaced) {
