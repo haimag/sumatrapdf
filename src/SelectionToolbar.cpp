@@ -502,7 +502,7 @@ void UpdateSelectionToolbarPosition(MainWindow* win) {
     }
     SelectionToolbar* tb = win->selectionToolbar;
     if (!tb || !tb->hwnd || !IsWindowVisible(tb->hwnd)) {
-        if (win->showSelection) {
+        if (win->showSelection && MouseAction::None == win->mouseAction) {
             ShowSelectionToolbar(win);
         }
         return;
