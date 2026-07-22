@@ -89,7 +89,7 @@ constexpr int kBtnPadX = 8; // horizontal padding inside a button
 constexpr int kBtnPadY = 4; // vertical padding inside a button
 constexpr int kMargin = 5;  // margin around the row of buttons
 constexpr int kBtnGap = 2;  // gap between buttons
-constexpr int kCornerRadius = 10;
+constexpr int kCornerRadius = 0;
 constexpr int kButtonRadius = 6;
 constexpr int kToolbarFontPct = 108;
 
