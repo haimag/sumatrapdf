@@ -228,6 +228,9 @@ struct Annotations {
     // aloud, highlight etc.) pops up after selecting text. Set to false to
     // disable it
     bool selectionToolbar;
+    // auto-hide timeout in ms for the selection toolbar (default 3000).
+    // Set to 0 or negative to disable auto-hide (toolbar stays visible).
+    int selectionToolbarAutoHideMs;
 };
 
 // list of additional external viewers for various file types. See [docs
@@ -895,11 +898,12 @@ static const FieldInfo gAnnotationsFields[] = {
     {offsetof(Annotations, textIconType), SettingType::String, (intptr_t)""},
     {offsetof(Annotations, defaultAuthor), SettingType::String, (intptr_t)""},
     {offsetof(Annotations, selectionToolbar), SettingType::Bool, true},
+    {offsetof(Annotations, selectionToolbarAutoHideMs), SettingType::Int, 3000},
 };
 static const StructInfo gAnnotationsInfo = {
-    sizeof(Annotations), 13, gAnnotationsFields,
+    sizeof(Annotations), 14, gAnnotationsFields,
     "HighlightColor\0UnderlineColor\0SquigglyColor\0StrikeOutColor\0FreeTextColor\0FreeTextBackgroundColor\0FreeTextOpa"
-    "city\0FreeTextSize\0FreeTextBorderWidth\0TextIconColor\0TextIconType\0DefaultAuthor\0SelectionToolbar",
+    "city\0FreeTextSize\0FreeTextBorderWidth\0TextIconColor\0TextIconType\0DefaultAuthor\0SelectionToolbar\0SelectionToolbarAutoHideMs",
     "highlight annotation color\0underline annotation color\0squiggly annotation color\0strike out annotation "
     "color\0text color of free text annotation\0background color of free text annotation\0opacity of free text "
     "annotation in percent (0-100); 0 - fully transparent (invisible), 50 - half transparent, 100 - fully opaque\0size "
@@ -907,7 +911,8 @@ static const StructInfo gAnnotationsInfo = {
     "annotation icon: comment, help, insert, key, new paragraph, note, paragraph. If not set: note.\0default author "
     "for created annotations, use (none) to not add an author at all. If not set will use Windows user name\0if true, "
     "a small floating toolbar with selection actions (copy, read aloud, highlight etc.) pops up after selecting text. "
-    "Set to false to disable it"};
+    "Set to false to disable it\0auto-hide timeout in ms for the selection toolbar (default 3000). Set to 0 or negative "
+    "to disable auto-hide (toolbar stays visible)."};
 
 static const FieldInfo gExternalViewerFields[] = {
     {offsetof(ExternalViewer, commandLine), SettingType::String, 0},

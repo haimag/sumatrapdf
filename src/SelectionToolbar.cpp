@@ -93,9 +93,20 @@ constexpr int kCornerRadius = 6;
 constexpr int kButtonRadius = 6;
 constexpr int kToolbarFontPct = 108;
 
-// auto-hide: hide after 3 seconds of inactivity, reset on mouse interaction
+// auto-hide: hide after the configured inactivity (default 3000ms), reset on
+// mouse interaction. Configured via Annotations.SelectionToolbarAutoHideMs;
+// 0 or negative disables auto-hide.
 constexpr int kAutoHideTimerId = 1;
-constexpr int kAutoHideTimeoutMs = 3000;
+constexpr int kAutoHideTimeoutMsDefault = 3000;
+
+// Returns the auto-hide timeout from prefs, or 0 (disabled) if unset/negative.
+static int SelBarAutoHideTimeoutMs() {
+    if (!gGlobalPrefs) {
+        return kAutoHideTimeoutMsDefault;
+    }
+    int t = gGlobalPrefs->annotations.selectionToolbarAutoHideMs;
+    return t > 0 ? t : 0;
+}
 
 // theme-derived colors for the floating card; light mode tints the page
 // render background so the card sits naturally over the document
@@ -357,7 +368,7 @@ static LRESULT CALLBACK WndProcSelectionToolbar(HWND hwnd, UINT msg, WPARAM wp, 
                 tb->hotIndex = -1;
                 HwndScheduleRepaint(hwnd);
             }
-            SetTimer(hwnd, kAutoHideTimerId, kAutoHideTimeoutMs, nullptr);
+            if (int t = SelBarAutoHideTimeoutMs()) { SetTimer(hwnd, kAutoHideTimerId, t, nullptr); }
             return 0;
 
         case WM_LBUTTONDOWN: {
@@ -548,7 +559,7 @@ void ShowSelectionToolbar(MainWindow* win) {
     LayoutToolbar(tb);
     PositionToolbar(tb, sel);
     ShowWindow(tb->hwnd, SW_SHOWNOACTIVATE);
-    SetTimer(tb->hwnd, kAutoHideTimerId, kAutoHideTimeoutMs, nullptr);
+    if (int t = SelBarAutoHideTimeoutMs()) { SetTimer(tb->hwnd, kAutoHideTimerId, t, nullptr); }
     HwndScheduleRepaint(tb->hwnd);
 }
 
@@ -592,7 +603,7 @@ void UpdateSelectionToolbarPosition(MainWindow* win) {
     if (tb->lastPlaced != prevPlaced) {
         HwndScheduleRepaint(tb->hwnd);
     }
-    SetTimer(tb->hwnd, kAutoHideTimerId, kAutoHideTimeoutMs, nullptr);
+    if (int t = SelBarAutoHideTimeoutMs()) { SetTimer(tb->hwnd, kAutoHideTimerId, t, nullptr); }
 }
 
 // Hide the toolbar but keep the window around for reuse.
