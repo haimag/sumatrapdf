@@ -93,6 +93,10 @@ constexpr int kCornerRadius = 6;
 constexpr int kButtonRadius = 6;
 constexpr int kToolbarFontPct = 108;
 
+// auto-hide: hide after 3 seconds of inactivity, reset on mouse interaction
+constexpr int kAutoHideTimerId = 1;
+constexpr int kAutoHideTimeoutMs = 3000;
+
 // theme-derived colors for the floating card; light mode tints the page
 // render background so the card sits naturally over the document
 static bool SelBarIsDark() {
@@ -332,6 +336,7 @@ static LRESULT CALLBACK WndProcSelectionToolbar(HWND hwnd, UINT msg, WPARAM wp, 
             return MA_NOACTIVATE;
 
         case WM_MOUSEMOVE: {
+            KillTimer(hwnd, kAutoHideTimerId);
             int x = GET_X_LPARAM(lp);
             int y = GET_Y_LPARAM(lp);
             int idx = ButtonFromPoint(tb, x, y);
@@ -352,6 +357,7 @@ static LRESULT CALLBACK WndProcSelectionToolbar(HWND hwnd, UINT msg, WPARAM wp, 
                 tb->hotIndex = -1;
                 HwndScheduleRepaint(hwnd);
             }
+            SetTimer(hwnd, kAutoHideTimerId, kAutoHideTimeoutMs, nullptr);
             return 0;
 
         case WM_LBUTTONDOWN: {
@@ -380,6 +386,15 @@ static LRESULT CALLBACK WndProcSelectionToolbar(HWND hwnd, UINT msg, WPARAM wp, 
             }
             return 0;
         }
+
+        case WM_TIMER:
+            if (wp == kAutoHideTimerId) {
+                KillTimer(hwnd, kAutoHideTimerId);
+                if (tb->win) {
+                    HideSelectionToolbar(tb->win);
+                }
+            }
+            return 0;
 
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -533,6 +548,7 @@ void ShowSelectionToolbar(MainWindow* win) {
     LayoutToolbar(tb);
     PositionToolbar(tb, sel);
     ShowWindow(tb->hwnd, SW_SHOWNOACTIVATE);
+    SetTimer(tb->hwnd, kAutoHideTimerId, kAutoHideTimeoutMs, nullptr);
     HwndScheduleRepaint(tb->hwnd);
 }
 
@@ -576,6 +592,7 @@ void UpdateSelectionToolbarPosition(MainWindow* win) {
     if (tb->lastPlaced != prevPlaced) {
         HwndScheduleRepaint(tb->hwnd);
     }
+    SetTimer(tb->hwnd, kAutoHideTimerId, kAutoHideTimeoutMs, nullptr);
 }
 
 // Hide the toolbar but keep the window around for reuse.
@@ -587,6 +604,7 @@ void HideSelectionToolbar(MainWindow* win) {
     if (IsWindowVisible(tb->hwnd)) {
         ShowWindow(tb->hwnd, SW_HIDE);
     }
+    KillTimer(tb->hwnd, kAutoHideTimerId);
     tb->hotIndex = -1;
     tb->pressedIndex = -1;
     tb->tab = nullptr;
