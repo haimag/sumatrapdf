@@ -1013,6 +1013,21 @@ static LRESULT CALLBACK WndProcAIChatBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
         return res;
     }
 
+    // a darkmodelib-subclassed checkbox paints its background via
+    // DrawThemeParentBackground, which sends WM_ERASEBKGND (or WM_PRINTCLIENT)
+    // with a DC clipped to the checkbox. VirtHostOnMessage claims WM_ERASEBKGND
+    // without painting (the panel repaints fully in WM_PAINT), which would leave
+    // the checkbox sitting on an unpainted white box in dark mode - answer with
+    // the theme background instead (cf. #5947)
+    if (msg == WM_ERASEBKGND || msg == WM_PRINTCLIENT) {
+        if (!win->brControlBgColor) {
+            win->brControlBgColor = CreateSolidBrush(ThemeControlBackgroundColor());
+        }
+        HDC hdc = (HDC)wp;
+        HdcFillRect(hdc, HwndClientRect(hwnd), win->brControlBgColor);
+        return msg == WM_ERASEBKGND ? TRUE : 0;
+    }
+
     // the panel header (label + close button) is a virtual control tree, so
     // this window paints it (background included) and hands it its input
     if (VirtHostOnMessage(hwnd, win->aiChatRoot, msg, wp, lp, res, ThemeControlBackgroundColor())) {
@@ -1020,11 +1035,6 @@ static LRESULT CALLBACK WndProcAIChatBox(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
     }
 
     switch (msg) {
-        case WM_ERASEBKGND: {
-            HDC hdc = (HDC)wp;
-            HdcFillRect(hdc, HwndClientRect(hwnd), win->brControlBgColor);
-            return TRUE;
-        }
         case WM_CTLCOLORSTATIC: {
             HDC hdc = (HDC)wp;
             SetTextColor(hdc, ThemeWindowTextColor());
