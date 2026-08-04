@@ -133,6 +133,14 @@ Color TabCtrl::BgColor() {
         }
         return AccentColor(ti->tabColor, isUnderMouse ? 35 : 25);
     }
+    // Dark theme: swap active/inactive so the active tab is brighter and pops out;
+    // inactive tabs are darker and blend into the bar
+    if (!IsLightColor(selected)) {
+        if (isSelected) {
+            return AccentColor(selected, 25);
+        }
+        return isUnderMouse ? AccentColor(selected, 12) : selected;
+    }
     if (isSelected) {
         return selected;
     }
