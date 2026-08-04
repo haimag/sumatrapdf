@@ -139,6 +139,14 @@ Color TabCtrl::BgColor() {
         }
         return AccentColor(ti->tabColor, isUnderMouse ? 35 : 25);
     }
+    // Dark theme: swap active/inactive so the active tab is brighter and pops out;
+    // inactive tabs are darker and blend into the bar
+    if (!IsLightColor(selected)) {
+        if (isSelected) {
+            return AccentColor(selected, 25);
+        }
+        return isUnderMouse ? AccentColor(selected, 12) : selected;
+    }
     if (isSelected) {
         return selected;
     }
@@ -456,7 +464,8 @@ void TabsCtrl::LayoutTabs() {
     if (tabWidthFrozen && frozenTabDx > 0) {
         dx = frozenTabDx;
     } else {
-        auto maxDx = (rect.dx - 5) / nTabs;
+        auto maxDx = (rect.dx - DpiScale(5)) / nTabs;
+        maxDx = std::max(maxDx, 1);
         dx = std::min(tabDefaultDx, maxDx);
     }
     tabSize = {dx, dy};

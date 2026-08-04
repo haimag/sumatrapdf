@@ -421,6 +421,12 @@ void AccelTablesBuilder::Add(ACCEL accel) {
     }
     if (isSafeTreeAccel(accel)) {
         treeViewAccels[nTreeViewAccels++] = accel;
+    } else {
+        CustomCommand* cmd = FindCustomCommand(accel.cmd);
+        if (cmd && cmd->origId == CmdToggleBookmarks) {
+            // also allow custom shortcuts for CmdToggleBookmarks
+            treeViewAccels[nTreeViewAccels++] = accel;
+        }
     }
 }
 

@@ -3019,11 +3019,10 @@ static void CreateCaptionLayout(MainWindow* win) {
     win->capRow2Lead = new Spacer(0, 0);
     win->capRow2Trail = new Spacer(0, 0);
 
-    // single row: sys | menu | tabs | gap | min | max/restore | close
-    // two row:     sys | menu hwnd | drag | min | max/restore | close
+    // single row: menu | tabs | gap | min | max/restore | close
+    // two row:     menu hwnd | drag | min | max/restore | close
     win->captionRow1 = new HBox();
     win->captionRow1->alignCross = CrossAxisAlign::CrossEnd;
-    win->captionRow1->AddChild(win->capBtn[CB_SYSTEM_MENU]);
     win->captionRow1->AddChild(win->capBtn[CB_MENU]);
     win->captionRow1->AddChild(win->capMenuSlot);
     win->captionRow1->AddChild(win->capTabsRow1, 1);
@@ -7365,7 +7364,7 @@ static void SyncCaptionLayout(MainWindow* win) {
     win->captionRow2->rtl = isRtl;
 
     int winBtn = twoRow ? menuBarDy : (pad + tabHeight + 2);
-    // hamburger / app icon match the tab band; min/max/close span the pad too
+    // hamburger matches the tab band; min/max/close span the pad too
     int tabBtn = twoRow ? menuBarDy : tabHeight;
 
     auto setBtn = [&](int id, bool vis, int sz) {
@@ -7374,7 +7373,8 @@ static void SyncCaptionLayout(MainWindow* win) {
         win->captionBtn[id].id = id;
         win->captionBtn[id].visible = vis;
     };
-    setBtn(CB_SYSTEM_MENU, true, tabBtn);
+    // the app-icon system-menu button was removed from the layout
+    win->captionBtn[CB_SYSTEM_MENU].visible = false;
     setBtn(CB_MENU, !twoRow, tabBtn);
     setBtn(CB_MINIMIZE, true, winBtn);
     setBtn(CB_MAXIMIZE, !maximized, winBtn);
@@ -13271,6 +13271,11 @@ static void TrackCaptionPopupMenu(MainWindow* win, HMENU menu, Rect btnRect) {
 
 void OpenSystemMenu(MainWindow* win) {
     Rect r = win->captionBtn[CB_SYSTEM_MENU].rect;
+    if (r.IsEmpty()) {
+        // the app-icon button is no longer in the layout; anchor the popup
+        // at the top-left corner where it used to be
+        r = {0, 0, 16, 16};
+    }
     HMENU systemMenu = GetUpdatedSystemMenu(win->hwndFrame, false);
     TrackCaptionPopupMenu(win, systemMenu, r);
 }
@@ -13519,15 +13524,6 @@ static void DrawCaptionButton(MainWindow* win, HDC hdc, ButtonInfo* bi) {
         for (int i = 0; i < 3; i++) {
             gfx.DrawLine(&p, rc.x, rc.y + (i * rc.dy / 2), rc.x + rc.dx, rc.y + (i * rc.dy / 2));
         }
-    } else if (button == CB_SYSTEM_MENU) {
-        SolidBrush bgBrSys(GdiRgbFromColor(ThemeControlBackgroundColor()));
-        gfx.FillRectangle(&bgBrSys, rButton.x, rButton.y, rButton.dx, rButton.dy);
-        int xIcon = DpiGetSystemMetrics(SM_CXSMICON);
-        int yIcon = DpiGetSystemMetrics(SM_CYSMICON);
-        HICON hIcon = (HICON)GetClassLongPtr(win->hwndFrame, GCLP_HICONSM);
-        int x = rButton.x + ((rButton.dx - xIcon) / 2);
-        int y = rButton.y + ((rButton.dy - yIcon) / 2);
-        DrawIconEx(hdc, x, y, hIcon, xIcon, yIcon, 0, nullptr, DI_NORMAL);
     }
 }
 

@@ -29,3 +29,17 @@ jobs:
           BB_SECRET: ${{ secrets.BB_SECRET }}
           BB_ACCESS: ${{ secrets.BB_ACCESS }}
         run: bun .\cmd\build.ts -ci
+
+      - name: Pre artifact
+        shell: bash
+        run: |
+          echo "CI_COMMIT_SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+          mv out/rel64/SumatraPDF-static.exe out/rel64/SumatraPDF.exe
+
+      - name: Upload release artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SumatraPDF-${{ env.CI_COMMIT_SHORT_SHA }}
+          path: out/rel64/SumatraPDF.exe
+          if-no-files-found: error
