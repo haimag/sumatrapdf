@@ -32,9 +32,37 @@ jobs:
 
       - name: Pre artifact
         shell: bash
+        run: |
           echo "CI_COMMIT_SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
           mv out/rel64/SumatraPDF-static.exe out/rel64/SumatraPDF.exe
 
-    runs-on: windows-2025-vs2026
+      - name: Upload release artifact
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
+          name: SumatraPDF-${{ env.CI_COMMIT_SHORT_SHA }}
+          path: out/rel64/SumatraPDF.exe
+          if-no-files-found: error
+  ng:
+    name: Windows ng x64 release
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Build ng
         run: bun cmd/ng-build.ts -rel SumatraPDF
+
+      - name: Pre artifact
+        shell: bash
+        run: echo "CI_COMMIT_SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: SumatraPDF-ng-${{ env.CI_COMMIT_SHORT_SHA }}
+          path: out/win/rel/SumatraPDF.exe
+          if-no-files-found: error
+          retention-days: 7
+
