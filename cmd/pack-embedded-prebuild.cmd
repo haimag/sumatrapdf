@@ -80,6 +80,7 @@ if exist "%WORK%\scripts.js" (
 )
 copy /y "%ROOT%\ext\marked.min.js" "%STAGING%\marked.min.js" >nul || exit /b 1
 copy /y "%ROOT%\ext\mermaid.min.js" "%STAGING%\mermaid.min.js" >nul || exit /b 1
+copy /y "%ROOT%\ext\wavedrom.min.js" "%STAGING%\wavedrom.min.js" >nul || exit /b 1
 
 REM base 14 (URW), CJK fallback (Droid), Charis SIL for EPUB, a few Noto for
 REM math / music / symbols / emoji. Not packed: NimbusBoxes, Source Han and the
