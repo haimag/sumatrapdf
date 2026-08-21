@@ -17,6 +17,7 @@ if not exist "%ROOT%\.work\embedded-src\translations.txt" (
   copy /y "%ROOT%\.work\translations.txt" "%ROOT%\.work\embedded-src\translations.txt" >nul
   copy /y "%ROOT%\ext\marked.min.js" "%ROOT%\.work\embedded-src\marked.min.js" >nul
   copy /y "%ROOT%\ext\mermaid.min.js" "%ROOT%\.work\embedded-src\mermaid.min.js" >nul
+  copy /y "%ROOT%\ext\wavedrom.min.js" "%ROOT%\.work\embedded-src\wavedrom.min.js" >nul
 )
 
 if not exist "%ROOT%\bin\MakeLZSA.exe" (

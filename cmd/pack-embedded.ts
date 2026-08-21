@@ -6,6 +6,7 @@
  *   translations.txt
  *   marked.min.js
  *   mermaid.min.js
+ *   wavedrom.min.js
  *   <files from .work/docs/…>  (manual assets; optional if docs not generated yet)
  *
  * Usage: bun cmd/pack-embedded.ts
@@ -53,7 +54,7 @@ export async function packEmbedded(): Promise<void> {
     writeFileSync(translationsTxt, "");
     console.log(`created empty ${translationsTxt}`);
   }
-  for (const p of ["ext/marked.min.js", "ext/mermaid.min.js"]) {
+  for (const p of ["ext/marked.min.js", "ext/mermaid.min.js", "ext/wavedrom.min.js"]) {
     if (!existsSync(p)) {
       throw new Error(`missing ${p}`);
     }
@@ -66,6 +67,7 @@ export async function packEmbedded(): Promise<void> {
   copyFileSync(translationsTxt, join(stagingDir, "translations.txt"));
   copyFileSync("ext/marked.min.js", join(stagingDir, "marked.min.js"));
   copyFileSync("ext/mermaid.min.js", join(stagingDir, "mermaid.min.js"));
+  copyFileSync("ext/wavedrom.min.js", join(stagingDir, "wavedrom.min.js"));
 
   let nDocs = 0;
   if (existsSync(docsDir)) {
@@ -80,7 +82,7 @@ export async function packEmbedded(): Promise<void> {
     console.log(`note: ${docsDir} missing; packing without manual docs`);
   }
 
-  const nTotal = 3 + nDocs;
+  const nTotal = 4 + nDocs;
   console.log(`packing ${nTotal} files into ${archivePath} (${nDocs} manual assets)`);
   await runMakeLzsa();
 }

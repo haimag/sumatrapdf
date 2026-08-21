@@ -9,6 +9,7 @@
 #include "base/HtmlTags.h"
 
 #include "Theme.h"
+#include "EmbeddedResources.h"
 #include "GumboHelpers.h"
 #include "GumboHtmlParser.h"
 
@@ -417,24 +418,66 @@ code { background: var(--code-bg); padding: .2em .4em; border-radius: 6px; }
 pre code { background: transparent; padding: 0; }
 pre.mermaid { background: transparent; text-align: center; overflow: visible; }
 pre.mermaid svg { max-width: 100%%; height: auto; }
+svg.WaveDrom { max-width: 100%%; height: auto; filter: var(--wavedrom-filter); }
 blockquote { margin: 0; padding: 0 1em; color: var(--muted); border-left: .25em solid var(--border); }
 table { border-collapse: collapse; }
 table th, table td { border: 1px solid var(--border); padding: 6px 13px; }
 img { max-width: 100%%; }
 )";
 
-// cmark emits <pre><code class="language-mermaid">…</code></pre> for ```mermaid
-// fences. mermaid.js looks for <pre class="mermaid"> (or elements with that class).
-// Returns how many blocks were rewritten.
-static int RewriteMermaidCodeBlocks(str::Builder& out, Str body) {
+// cmark emits <pre><code class="language-X">…</code></pre> for ```X fences.
+// mermaid.js looks for <pre class="mermaid"> (or elements with that class).
+// WaveDrom reads <script type="WaveDrom">…</script> elements and parses their
+// text as JSON; script content is raw text (entities are not decoded), so the
+// cmark-escaped JSON must be unescaped when it moves into a script element.
+struct DiagramRewriteCounts {
+    int nMermaid = 0;
+    int nWaveDrom = 0;
+};
+
+// Append a fence's content unescaped for WaveDrom. cmark escapes & < > " in
+// code blocks; decode those entities back (lt/gt/quot before amp so that
+// "&amp;lt;" from a literal "&lt;" in the source isn't double-decoded). Also
+// break up "</script" so a diagram containing it can't end the script element
+// early and leak the rest of the page as visible text ("\/" is a valid JSON
+// escape, so strings survive; unquoted "</script>" is invalid JSON anyway).
+static void AppendWaveDromContent(str::Builder& out, Str fence) {
+    int i = 0;
+    while (i < fence.len) {
+        Str rest = Str(fence.s + i, fence.len - i);
+        if (str::StartsWith(rest, StrL("&lt;"))) {
+            if (str::StartsWithI(Str(fence.s + i + 4, fence.len - i - 4), StrL("/script"))) {
+                out.Append(StrL("<\\/script"));
+                i += 11; // "&lt;" + "/script"
+            } else {
+                out.AppendChar('<');
+                i += 4;
+            }
+        } else if (str::StartsWith(rest, StrL("&gt;"))) {
+            out.AppendChar('>');
+            i += 4;
+        } else if (str::StartsWith(rest, StrL("&quot;"))) {
+            out.AppendChar('"');
+            i += 6;
+        } else if (str::StartsWith(rest, StrL("&amp;"))) {
+            out.AppendChar('&');
+            i += 5;
+        } else {
+            out.AppendChar(fence.s[i]);
+            i++;
+        }
+    }
+}
+
+static DiagramRewriteCounts RewriteDiagramCodeBlocks(str::Builder& out, Str body) {
+    DiagramRewriteCounts counts;
     if (len(body) == 0) {
-        return 0;
+        return counts;
     }
     // Match the open tag cmark produces; language name is case-insensitive.
     Str kOpen = StrL("<pre><code class=\"language-");
     Str kCloseCodePre = StrL("</code></pre>");
 
-    int nRewritten = 0;
     Str rest = body;
     while (rest) {
         int openAt = str::IndexOf(rest, kOpen);
@@ -465,7 +508,9 @@ static int RewriteMermaidCodeBlocks(str::Builder& out, Str body) {
             langLen++;
         }
         Str lang(afterOpen.s, langLen);
-        if (!str::EqI(lang, StrL("mermaid"))) {
+        bool isMermaid = str::EqI(lang, StrL("mermaid"));
+        bool isWaveDrom = str::EqI(lang, StrL("wavejson")) | str::EqI(lang, StrL("wavedrom"));
+        if (!isMermaid && !isWaveDrom) {
             out.Append(Str(fromOpen.s, len(kOpen) + gtAt + 1));
             rest = Str(afterOpen.s + gtAt + 1, afterOpen.len - gtAt - 1);
             continue;
@@ -477,14 +522,22 @@ static int RewriteMermaidCodeBlocks(str::Builder& out, Str body) {
             out.Append(fromOpen);
             break;
         }
-        // <pre class="mermaid">…</pre>  (content already HTML-escaped by cmark)
-        out.Append(StrL("<pre class=\"mermaid\">"));
-        out.Append(Str(content.s, closeAt));
-        out.Append(StrL("</pre>"));
-        nRewritten++;
+        Str fence = Str(content.s, closeAt);
+        if (isMermaid) {
+            // <pre class="mermaid">…</pre>  (content stays HTML-escaped for the parser)
+            out.Append(StrL("<pre class=\"mermaid\">"));
+            out.Append(fence);
+            out.Append(StrL("</pre>"));
+            counts.nMermaid++;
+        } else {
+            out.Append(StrL("<script type=\"WaveDrom\">"));
+            AppendWaveDromContent(out, fence);
+            out.Append(StrL("</script>"));
+            counts.nWaveDrom++;
+        }
         rest = Str(content.s + closeAt + len(kCloseCodePre), content.len - closeAt - len(kCloseCodePre));
     }
-    return nRewritten;
+    return counts;
 }
 
 // mermaid.min.js lives in IDR_EMBEDDED_PAK and is served from the markdown
@@ -511,6 +564,27 @@ static const char kMermaidBootstrap[] = R"HTML(
 </script>
 )HTML";
 
+// The WaveDrom runtime is inlined into the page (it's only ~84KB, unlike
+// mermaid's 2.6MB) so the generated HTML is self-contained: the markdown
+// virtual host isn't reachable from a saved copy (the "Show Generated HTML"
+// command), and no extra pak-served request can 404. Runs after the fence
+// <script type="WaveDrom"> elements (they're earlier in the body); the
+// dark-mode filter comes from the generated page CSS.
+static const char kWaveDromBootstrap[] = R"HTML(
+<script>
+(function () {
+  if (typeof wavedrom === "undefined") return;
+  try {
+    // wavedrom 3.6's renderWaveForm reads the skin from window.WaveSkin and
+    // throws if it's undefined, and the bundle never sets it; without this
+    // processAll() dies inside its per-diagram loop and nothing renders.
+    window.WaveSkin = wavedrom.waveSkin;
+    wavedrom.processAll();
+  } catch (e) {}
+})();
+</script>
+)HTML";
+
 static TempStr ColorToCssTemp(Color c) {
     return fmt("#%02x%02x%02x", (int)GetRValue(c), (int)GetGValue(c), (int)GetBValue(c));
 }
@@ -532,8 +606,10 @@ static TempStr MarkdownPageCssTemp() {
     TempStr border = isDefault ? str::DupTemp(StrL("#d0d7de")) : ColorToCssTemp(AccentColor(bgCol, 25));
     TempStr codeBg = isDefault ? str::DupTemp(StrL("#f6f8fa")) : ColorToCssTemp(AccentColor(bgCol, 8));
 
-    TempStr cssVars =
-        fmt("--bg:%s; --fg:%s; --link:%s; --muted:%s; --border:%s; --code-bg:%s;", bg, fg, link, muted, border, codeBg);
+    // wavedrom 3.6 has no theme API; invert the rendered diagram in dark mode
+    TempStr wavedromFilter = dark ? str::DupTemp(StrL("invert(.9) hue-rotate(180deg)")) : str::DupTemp(StrL("none"));
+    TempStr cssVars = fmt("--bg:%s; --fg:%s; --link:%s; --muted:%s; --border:%s; --code-bg:%s; --wavedrom-filter:%s;",
+                          bg, fg, link, muted, border, codeBg, wavedromFilter);
     return fmt(kMarkdownPageCssFmt, cssVars);
 }
 
@@ -768,7 +844,7 @@ Str MarkdownToHtmlPage(Str markdown) {
     }
 
     str::Builder rewritten;
-    int nMermaid = RewriteMermaidCodeBlocks(rewritten, Str(body));
+    DiagramRewriteCounts diagrams = RewriteDiagramCodeBlocks(rewritten, Str(body));
     cmark_mem* mem = cmark_get_default_mem_allocator();
     mem->free(body);
 
@@ -780,9 +856,22 @@ Str MarkdownToHtmlPage(Str markdown) {
     html.Append(Str(MarkdownPageCssTemp()));
     html.Append(StrL("</style></head><body>"));
     html.Append(ToStr(rewritten));
-    // Mermaid diagrams need JS (WebView2). Fixed-page MuPDF path has no scripts.
-    if (nMermaid > 0) {
+    // Mermaid/WaveDrom diagrams need JS (WebView2). Fixed-page MuPDF path has no scripts.
+    if (diagrams.nMermaid > 0) {
         html.Append(Str(kMermaidBootstrap, (int)(sizeof(kMermaidBootstrap) - 1)));
+    }
+    if (diagrams.nWaveDrom > 0) {
+        // wavedrom.min.js lives in IDR_EMBEDDED_PAK; inline it so the page
+        // needs no pak-served request (see kWaveDromBootstrap)
+        int n = 0;
+        u8* js = GetEmbeddedFileData(StrL("wavedrom.min.js"), &n);
+        if (js && n > 0) {
+            html.Append(StrL("<script>"));
+            html.Append(Str((const char*)js, n));
+            html.Append(StrL("</script>"));
+        }
+        free(js);
+        html.Append(Str(kWaveDromBootstrap, (int)(sizeof(kWaveDromBootstrap) - 1)));
     }
     html.Append(StrL("</body></html>"));
 
@@ -908,10 +997,11 @@ bool MarkdownToc_UnitTestMermaid() {
         return false;
     }
     str::Builder rewritten;
-    int n = RewriteMermaidCodeBlocks(rewritten, Str(body));
+    DiagramRewriteCounts diagrams = RewriteDiagramCodeBlocks(rewritten, Str(body));
     cmark_get_default_mem_allocator()->free(body);
     Str html = ToStr(rewritten);
-    bool ok = (n == 1) && str::Contains(html, StrL("<pre class=\"mermaid\">")) &&
+    bool ok = (diagrams.nMermaid == 1) && (diagrams.nWaveDrom == 0) &&
+              str::Contains(html, StrL("<pre class=\"mermaid\">")) &&
               str::Contains(html, StrL("flowchart TD")) && !str::Contains(html, StrL("language-mermaid"));
 
     // other language fences stay as cmark emitted them
@@ -920,10 +1010,10 @@ bool MarkdownToc_UnitTestMermaid() {
         return false;
     }
     str::Builder plainB;
-    int nPlain = RewriteMermaidCodeBlocks(plainB, Str(body));
+    DiagramRewriteCounts plainDiagrams = RewriteDiagramCodeBlocks(plainB, Str(body));
     cmark_get_default_mem_allocator()->free(body);
     Str plain = ToStr(plainB);
-    ok = ok && (nPlain == 0) && str::Contains(plain, StrL("language-js")) &&
+    ok = ok && (plainDiagrams.nMermaid == 0) && str::Contains(plain, StrL("language-js")) &&
          !str::Contains(plain, StrL("pre class=\"mermaid\""));
     return ok;
 }
