@@ -20,4 +20,5 @@ void ParseMarkdownTocsParallel(StrVec& files, bool htmlMode, Vec<MarkdownFileToc
 
 Str MarkdownToHtmlPage(Str markdown);
 Str MermaidRunJs();
+Str WaveDromRunJs();
 Str CodeRunJs();

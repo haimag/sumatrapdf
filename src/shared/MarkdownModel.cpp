@@ -538,10 +538,10 @@ static bool IsPageScriptUrl(Str url, Str name) {
     return str::EqI(url, name) || (str::EndsWithI(url, name) && url.s[len(url) - len(name) - 1] == '/');
 }
 
-// scripts the page MarkdownToHtmlPage makes loads: pele for ```mermaid
-// fences, microlighter and code-run.js for code blocks
+// scripts the page MarkdownToHtmlPage makes loads: pele and wavedrom for
+// ```mermaid / ```wavedrom fences, microlighter and code-run.js for code blocks
 static Str PageScriptData(Str url) {
-    Str embedded[] = {StrL("pele.min.js"), StrL("microlighter.min.js")};
+    Str embedded[] = {StrL("pele.min.js"), StrL("wavedrom.min.js"), StrL("microlighter.min.js")};
     for (Str name : embedded) {
         if (!IsPageScriptUrl(url, name)) {
             continue;
@@ -554,6 +554,9 @@ static Str PageScriptData(Str url) {
     }
     if (IsPageScriptUrl(url, StrL("mermaid-run.js"))) {
         return str::Dup(MermaidRunJs());
+    }
+    if (IsPageScriptUrl(url, StrL("wavedrom-run.js"))) {
+        return str::Dup(WaveDromRunJs());
     }
     if (IsPageScriptUrl(url, StrL("code-run.js"))) {
         return str::Dup(CodeRunJs());

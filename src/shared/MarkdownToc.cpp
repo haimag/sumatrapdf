@@ -299,6 +299,7 @@ pre.mermaid { background: transparent; text-align: center; overflow: visible;
   --pele-surface: var(--code-bg); --pele-surface-alt: var(--border); --pele-border: var(--border);
   --pele-accent: var(--link); }
 pre.mermaid svg { max-width: 100%%; height: auto; }
+svg.WaveDrom { max-width: 100%%; height: auto; filter: var(--wavedrom-filter); }
 pre[data-lang]::before { content: attr(data-lang); display: block; margin-bottom: 8px; color: var(--muted);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
 .code-block { position: relative; }
@@ -327,15 +328,53 @@ img { max-width: 100%%; }
 
 struct CodeBlockCounts {
     int mermaid = 0;
-    // fences that name a language other than mermaid: highlighted
+    int wavedrom = 0;
+    // fences that name a language other than mermaid/wavedrom: highlighted
     int withLang = 0;
     // fences without a language
     int plain = 0;
 };
 
-// cmark emits <pre><code class="language-mermaid">…</code></pre> for ```mermaid
-// fences. Pele mounts <pre class="mermaid">. Other languages get
-// <pre data-lang="python">, which the page shows as a label.
+// Append a fence's content unescaped for WaveDrom. cmark escapes & < > " in
+// code blocks; decode those entities back (lt/gt/quot before amp so that
+// "&amp;lt;" from a literal "&lt;" in the source isn't double-decoded). Also
+// break up "</script" so a diagram containing it can't end the script element
+// early and leak the rest of the page as visible text ("\/" is a valid JSON
+// escape, so strings survive; unquoted "</script>" is invalid JSON anyway).
+static void AppendWaveDromContent(str::Builder& out, Str fence) {
+    int i = 0;
+    while (i < fence.len) {
+        Str rest = Str(fence.s + i, fence.len - i);
+        if (str::StartsWith(rest, StrL("&lt;"))) {
+            if (str::StartsWithI(Str(fence.s + i + 4, fence.len - i - 4), StrL("/script"))) {
+                out.Append(StrL("<\\/script"));
+                i += 11; // "&lt;" + "/script"
+            } else {
+                out.AppendChar('<');
+                i += 4;
+            }
+        } else if (str::StartsWith(rest, StrL("&gt;"))) {
+            out.AppendChar('>');
+            i += 4;
+        } else if (str::StartsWith(rest, StrL("&quot;"))) {
+            out.AppendChar('"');
+            i += 6;
+        } else if (str::StartsWith(rest, StrL("&amp;"))) {
+            out.AppendChar('&');
+            i += 5;
+        } else {
+            out.AppendChar(fence.s[i]);
+            i++;
+        }
+    }
+}
+
+// cmark emits <pre><code class="language-X">…</code></pre> for ```X fences.
+// Pele mounts <pre class="mermaid">. WaveDrom reads <script type="WaveDrom">…
+// </script> elements and parses their text as JSON; script content is raw text
+// (entities are not decoded), so the cmark-escaped JSON must be unescaped when
+// it moves into a script element.
+// Other languages get <pre data-lang="python">, which the page shows as a label.
 static CodeBlockCounts RewriteCodeBlocks(str::Builder& out, Str body) {
     CodeBlockCounts counts;
     for (Str rest = body; rest;) {
@@ -372,7 +411,9 @@ static CodeBlockCounts RewriteCodeBlocks(str::Builder& out, Str body) {
             langLen++;
         }
         Str lang(attrs.s, langLen);
-        if (!str::EqI(lang, StrL("mermaid"))) {
+        bool isMermaid = str::EqI(lang, StrL("mermaid"));
+        bool isWaveDrom = str::EqI(lang, StrL("wavejson")) || str::EqI(lang, StrL("wavedrom"));
+        if (!isMermaid && !isWaveDrom) {
             // cmark has already HTML-escaped the language name
             out.Append(StrL("<pre data-lang=\""));
             out.Append(lang);
@@ -388,11 +429,19 @@ static CodeBlockCounts RewriteCodeBlocks(str::Builder& out, Str body) {
             out.Append(fromOpen);
             break;
         }
-        // cmark has already HTML-escaped the diagram text.
-        out.Append(StrL("<pre class=\"mermaid\">"));
-        out.Append(block);
-        out.Append(StrL("</pre>"));
-        counts.mermaid++;
+        if (isMermaid) {
+            // cmark has already HTML-escaped the diagram text.
+            out.Append(StrL("<pre class=\"mermaid\">"));
+            out.Append(block);
+            out.Append(StrL("</pre>"));
+            counts.mermaid++;
+        } else {
+            // script content is raw text, so the escaped JSON must be decoded
+            out.Append(StrL("<script type=\"WaveDrom\">"));
+            AppendWaveDromContent(out, block);
+            out.Append(StrL("</script>"));
+            counts.wavedrom++;
+        }
     }
     return counts;
 }
@@ -416,11 +465,13 @@ static const char kMermaidRunJs[] = R"JS(
 )JS";
 
 // Raw HTML in markdown is rendered (#6380), so the page must not run the
-// document's script (e.g. <img onerror=...>): only our pele and code scripts.
+// document's script (e.g. <img onerror=...>): only our pele, wavedrom and
+// code scripts.
 static const char kMarkdownCsp[] =
     "<meta http-equiv=\"Content-Security-Policy\" content=\""
     "default-src 'self' data:; img-src * data:; media-src * data:; style-src 'self' 'unsafe-inline'; "
     "script-src https://sumatrapdf.markdown/pele.min.js https://sumatrapdf.markdown/mermaid-run.js "
+    "https://sumatrapdf.markdown/wavedrom.min.js https://sumatrapdf.markdown/wavedrom-run.js "
     "https://sumatrapdf.markdown/microlighter.min.js https://sumatrapdf.markdown/code-run.js; "
     "object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'\">";
 
@@ -470,6 +521,33 @@ Str CodeRunJs() {
     return Str(kCodeRunJs, (int)(sizeof(kCodeRunJs) - 1));
 }
 
+// wavedrom.min.js is in IDR_EMBEDDED_PAK, wavedrom-run.js is kWaveDromRunJs;
+// both served from the markdown virtual host so kMarkdownCsp can allow just
+// these scripts (inline ones wouldn't run under it).
+static const char kWaveDromBootstrap[] = R"HTML(
+<script src="https://sumatrapdf.markdown/wavedrom.min.js"></script>
+<script src="https://sumatrapdf.markdown/wavedrom-run.js"></script>
+)HTML";
+
+// Runs after the fence <script type="WaveDrom"> elements (they're earlier in
+// the body); the dark-mode filter comes from the generated page CSS.
+static const char kWaveDromRunJs[] = R"JS(
+(function () {
+  if (typeof wavedrom === "undefined") return;
+  try {
+    // wavedrom 3.6's renderWaveForm reads the skin from window.WaveSkin and
+    // throws if it's undefined, and the bundle never sets it; without this
+    // processAll() dies inside its per-diagram loop and nothing renders.
+    window.WaveSkin = wavedrom.waveSkin;
+    wavedrom.processAll();
+  } catch (e) {}
+})();
+)JS";
+
+Str WaveDromRunJs() {
+    return Str(kWaveDromRunJs, (int)(sizeof(kWaveDromRunJs) - 1));
+}
+
 // page colors follow the document color mode: ThemePageRenderColors gives
 // black-on-white (or FixedPageUI overrides) when DocumentColorsFollowTheme
 // is off and theme-derived page colors when it's on
@@ -489,9 +567,11 @@ static TempStr MarkdownPageCssTemp() {
 
     Str markBg = dark ? StrL("#e6c229") : StrL("#fff8c5");
     Str markFg = dark ? StrL("#1f2328") : fg;
-    TempStr cssVars =
-        fmt("--bg:%s; --fg:%s; --link:%s; --muted:%s; --border:%s; --code-bg:%s; --mark:%s; --mark-fg:%s;", bg, fg,
-            link, muted, border, codeBg, markBg, markFg);
+    // wavedrom 3.6 has no theme API; invert the rendered diagram in dark mode
+    Str wavedromFilter = dark ? StrL("invert(.9) hue-rotate(180deg)") : StrL("none");
+    TempStr cssVars = fmt("--bg:%s; --fg:%s; --link:%s; --muted:%s; --border:%s; --code-bg:%s; --mark:%s; --mark-fg:%s; "
+                          "--wavedrom-filter:%s;",
+                          bg, fg, link, muted, border, codeBg, markBg, markFg, wavedromFilter);
     // code colors: GitHub's light or dark palette
     Str syntax = dark ? StrL(
                             "--syntax-comment:#8b949e; --syntax-keyword:#ff7b72; --syntax-string:#a5d6ff; "
@@ -951,9 +1031,13 @@ Str MarkdownToHtmlPage(Str markdown) {
     cmark_mem* mem = cmark_get_default_mem_allocator();
     mem->free(body);
 
-    // Mermaid diagrams and code coloring need JS (WebView2). Fixed-page MuPDF path has no scripts.
+    // Mermaid/WaveDrom diagrams and code coloring need JS (WebView2). Fixed-page
+    // MuPDF path has no scripts.
     if (counts.mermaid > 0) {
         html.Append(Str(kMermaidBootstrap, (int)(sizeof(kMermaidBootstrap) - 1)));
+    }
+    if (counts.wavedrom > 0) {
+        html.Append(Str(kWaveDromBootstrap, (int)(sizeof(kWaveDromBootstrap) - 1)));
     }
     if (counts.withLang > 0) {
         html.Append(Str(kCodeHighlightScript, (int)(sizeof(kCodeHighlightScript) - 1)));
@@ -1090,7 +1174,8 @@ bool MarkdownToc_UnitTestMermaid() {
     CodeBlockCounts n = RewriteCodeBlocks(rewritten, Str(body));
     cmark_get_default_mem_allocator()->free(body);
     Str html = ToStr(rewritten);
-    bool ok = (n.mermaid == 1) && (n.withLang == 0) && str::Contains(html, StrL("<pre class=\"mermaid\">")) &&
+    bool ok = (n.mermaid == 1) && (n.wavedrom == 0) && (n.withLang == 0) &&
+              str::Contains(html, StrL("<pre class=\"mermaid\">")) &&
               str::Contains(html, StrL("flowchart TD")) && !str::Contains(html, StrL("language-mermaid"));
 
     // other language fences keep their class and get a data-lang label (#6433);
@@ -1103,11 +1188,25 @@ bool MarkdownToc_UnitTestMermaid() {
     CodeBlockCounts nPlain = RewriteCodeBlocks(plainB, Str(body));
     cmark_get_default_mem_allocator()->free(body);
     Str plain = ToStr(plainB);
-    ok = ok && (nPlain.mermaid == 0) && (nPlain.withLang == 1) && (nPlain.plain == 1) &&
+    ok = ok && (nPlain.mermaid == 0) && (nPlain.wavedrom == 0) && (nPlain.withLang == 1) && (nPlain.plain == 1) &&
          str::Contains(plain, StrL("<pre data-lang=\"js\"><code class=\"language-js\">")) &&
          str::Contains(plain, StrL("<pre><code>plain")) && !str::Contains(plain, StrL("pre class=\"mermaid\""));
     Str run = MermaidRunJs();
     ok = ok && str::Contains(run, StrL("pele.mount"));
+
+    // ```wavedrom / ```wavejson fences become <script type="WaveDrom"> with the
+    // cmark escapes decoded back, since script content is raw text
+    body = MarkdownToHtmlBody(StrL("```wavejson\n{ \"signal\": [\"clk\", \"a & <b>\"] }\n```\n"));
+    if (!body) {
+        return false;
+    }
+    str::Builder wd;
+    CodeBlockCounts nWd = RewriteCodeBlocks(wd, Str(body));
+    cmark_get_default_mem_allocator()->free(body);
+    Str wdHtml = ToStr(wd);
+    ok = ok && (nWd.wavedrom == 1) && (nWd.withLang == 0) &&
+         str::Contains(wdHtml, StrL("<script type=\"WaveDrom\">")) &&
+         str::Contains(wdHtml, StrL("[\"clk\", \"a & <b>\"]")) && !str::Contains(wdHtml, StrL("language-wavejson"));
     return ok;
 }
 
