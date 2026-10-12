@@ -26,6 +26,7 @@
 #include "Commands.h"
 #include "SumatraPDF.h"
 #include "MainWindow.h"
+#include "Theme.h"
 #include "GlobalHotkeys.h"
 #include "ExplorerQuickLook.h"
 #include "ReadAloud.h"
@@ -45,6 +46,7 @@
 #if OS_WIN
 
 #include <commctrl.h>
+#include <dwmapi.h>
 
 // gpui's win32 window class (ext/gpui/gpui.cpp)
 static const WCHAR* kGpuiWndClass = L"GpuiSystemMonitor";
@@ -57,6 +59,8 @@ struct NativeWin {
     bool isFullScreen = false;
     long nonFullScreenWindowStyle = 0;
     Rect nonFullScreenFrameRect;
+    // -1 until applied: DWM's frame follows the theme, not the system
+    int darkFrame = -1;
 };
 
 static Vec<NativeWin> gNativeWins;
@@ -224,6 +228,22 @@ void AppShellFrameChanged(MainWindow* win) {
     }
     uint flags = SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE;
     SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, flags);
+}
+
+// orig's DarkModeApplyToTitleBar: gpui sets DWM's dark mode from the system, so
+// a dark theme on a light system gets a light frame. Take the theme's.
+void AppShellSyncFrameTheme(MainWindow* win) {
+    NativeWin* nw = NativeWinOf(win);
+    if (!nw || !nw->hwnd) {
+        return;
+    }
+    int dark = IsLightColor(ThemeWindowBackgroundColor()) ? 0 : 1;
+    if (dark == nw->darkFrame) {
+        return;
+    }
+    nw->darkFrame = dark;
+    BOOL on = dark ? TRUE : FALSE;
+    DwmSetWindowAttribute(nw->hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &on, sizeof(on));
 }
 
 struct SystemMenuAt {
@@ -810,6 +830,16 @@ static LRESULT CALLBACK ShellSubclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                 return 0;
             }
             break;
+        case WM_SETTINGCHANGE:
+            // the system colour mode changed: gpui would put DWM's frame back
+            // to the system's, so apply the theme's and keep it from doing so
+            if (wp == 0 && lp && wstr::EqI(WStr((WCHAR*)lp), WStr(L"ImmersiveColorSet"))) {
+                if (MainWindow* win = WinOf(hwnd)) {
+                    AppShellSyncFrameTheme(win);
+                    return 0;
+                }
+            }
+            break;
         case WM_DPICHANGED:
             // gpui only moves the window to the suggested rect. The font sizes
             // follow frameDpi, which AppShellOnDpiChanged stores first.
@@ -1022,6 +1052,8 @@ void AppShellEnableFileDrop(MainWindow*) {}
 void AppShellApplyNativeCursor(MainWindow*) {}
 
 void AppShellFrameChanged(MainWindow*) {}
+
+void AppShellSyncFrameTheme(MainWindow*) {}
 
 void AppShellOpenSystemMenu(MainWindow*, Rect) {}
 

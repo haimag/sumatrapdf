@@ -99,6 +99,10 @@ int AppShellFrameBorder(MainWindow* win);
 void AppShellSetClientTitleBar(MainWindow* win, bool on);
 // the frame's style changed: have Windows recompute the non-client area
 void AppShellFrameChanged(MainWindow* win);
+// orig's DarkModeApplyToTitleBar: DWM draws the frame in the theme's colours
+// instead of the system's. Call on creation and on every theme change; no-op
+// off Windows, where the window manager owns the frame
+void AppShellSyncFrameTheme(MainWindow* win);
 // orig's OpenSystemMenu: the window menu, under the rect (window dips)
 void AppShellOpenSystemMenu(MainWindow* win, Rect below);
 // the app's small icon; null where there is none to ask for (off Windows)

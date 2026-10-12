@@ -189,6 +189,8 @@ void ThemeApplyPlatformColors() {
     gp::ThemeSet(app, mode);
 
     for (MainWindow* win : gWindows) {
+        // the caption DWM draws with the frame, not with our pixels
+        AppShellSyncFrameTheme(win);
         AppShellInvalidate(win);
     }
 }

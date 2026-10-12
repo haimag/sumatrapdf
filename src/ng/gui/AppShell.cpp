@@ -105,7 +105,8 @@ static gp::App* gApp = nullptr;
 
 struct ShellView {
     MainWindow* win = nullptr;
-    // the caption's system menu button, as laid out on the last frame
+    // the caption's system menu button, as laid out on the last frame. The app
+    // icon is hidden (orig hides it too), so it is never laid out now
     gp::Bounds sysMenuBtn{};
     gp::Entity<gpc::AppMenuBarState> menuBarState;
     gp::Entity<gp::PopupMenuState> menuPopupState;
@@ -369,62 +370,19 @@ static gp::El* CaptionButton(gp::Ctx* cx, int button, int clickId, int size) {
     return b;
 }
 
-#if OS_WIN
-// the icon's pixels are premultiplied BGRA, which is what gpui takes
-static gp::ImageLoadState AppIconLoad(gp::PaintApp* pa, void* user, gp::RenderImage** imgOut) {
-    static gp::RenderImage* img = nullptr;
-    static bool tried = false;
-    auto* px = (Pixmap*)user;
-    if (!tried) {
-        tried = true;
-        if (px->stride == px->width * 4) {
-            img = gp::RenderImageFromBgra(pa, px->data, px->width, px->height);
-        }
-    }
-    *imgOut = img;
-    return img ? gp::ImageLoadState::Ready : gp::ImageLoadState::Failed;
-}
-#endif
-
-// orig's CB_SYSTEM_MENU: the app icon; a click opens the window menu under it
-static gp::El* CaptionSystemMenuButton(ShellView* self, gp::Ctx* cx, int size) {
-    MainWindow* win = self->win;
-    gp::El* b = gp::Div(cx->a)
-                    ->FlexRow()
-                    ->W((float)size)
-                    ->H((float)size)
-                    ->Shrink0()
-                    ->ItemsCenter()
-                    ->JustifyCenter()
-                    ->BoundsOut(&self->sysMenuBtn)
-                    ->PathClick(GStrL("sumatra-sys-menu"))
-                    ->OnDrag(GStrL("sumatra-sys-menu"))
-                    ->OnMouseDown(gp::Listen(cx, &ShellView::OnSystemMenuDown))
-                    ->OnDragMove(gp::Listen(cx, &ShellView::OnSystemMenuDrag))
-                    ->OnClick(gp::Listen(cx, &ShellView::OnSystemMenu));
-#if OS_WIN
-    if (Pixmap* px = AppShellAppIconPixmap(win)) {
-        float k = CanvasScale(win);
-        gp::ImageSource src = gp::ImageSource::FromCustom(AppIconLoad, px);
-        b->Child(gp::ImageEl(cx->a, src, GStrL(""))->W((float)px->width * k)->H((float)px->height * k)->Shrink0());
-    }
-#else
-    (void)win;
-#endif
-    return b;
-}
-
 // orig's CreateCaptionLayout / SyncCaptionLayout:
-// single row: sys | menu | tabs | gap | min | max/restore | close
-// two row:     sys | menu bar | drag | min | max/restore | close
+// single row: menu | tabs | gap | min | max/restore | close
+// two row:     menu bar | drag | min | max/restore | close
 //              tabs
-// ng: the menu button is the tab strip's own first cell (gui/TabsUI.cpp)
+// ng: the menu button is the tab strip's own first cell (gui/TabsUI.cpp).
+// orig no longer lays out its app-icon system-menu button (CB_SYSTEM_MENU is
+// hidden), so nothing is built for it here either
 static void BuildCaption(ShellView* self, gp::Ctx* cx, gp::El* root, bool twoRow) {
     MainWindow* win = self->win;
     const gp::Theme& th = gp::ThemeNow(cx->app);
     bool maximized = win->isMaximized;
     int winBtn = CaptionWinBtnDy(win, twoRow);
-    // hamburger / app icon match the tab band; min/max/close span the pad too
+    // hamburger matches the tab band; min/max/close span the pad too
     int tabBtn = twoRow ? kMenuBarDy : kTabBarDy;
 
     gp::El* row1 = gp::Div(cx->a)
@@ -435,7 +393,6 @@ static void BuildCaption(ShellView* self, gp::Ctx* cx, gp::El* root, bool twoRow
                        ->ItemsEnd()
                        ->Bg(ToGpui(ThemeControlBackgroundColor()))
                        ->Click(gp::ClickWinCaption);
-    row1->Child(CaptionSystemMenuButton(self, cx, tabBtn));
     gp::El* tabs = nullptr;
     if (twoRow) {
         row1->Child(
@@ -3284,6 +3241,8 @@ MainWindow* AppShellCreateWindow(gp::App* app, int dipW, int dipH) {
     // on a 500 ms one; one interval drives both here
     gp::WindowSetInterval(gw, 16, gp::ListenTo(ui->view, &ShellView::OnTick));
     AppShellEnableFileDrop(win);
+    // after the drop target: that is what claims the native handle
+    AppShellSyncFrameTheme(win);
     logf("AppShellCreateWindow: window 0x%p, %d windows open\n", win, len(gWindows));
     return win;
 }
